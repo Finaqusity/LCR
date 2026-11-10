@@ -1,0 +1,27 @@
+# ---- 编译产物 ----
+firmware/build/
+build/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.su
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ---- 工具/IDE ----
+.vscode/
+.idea/
+*.uvguix.*
+JLinkLog.txt
+
+# ---- 临时文件 ----
+~$*.docx
+~$*.xlsx
+Thumbs.db
+.DS_Store
