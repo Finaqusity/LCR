@@ -70,7 +70,7 @@ $ tick=1000
 
 ```
 firmware/      固件（CMake + arm-none-eabi-gcc，裸机 CMSIS）
-tools/         build.ps1 / flash.ps1 / monitor.ps1 / monitor.py
+tools/         build.ps1 / flash.ps1 / monitor.ps1 / monitor.py / cubemx.ps1
 .vscode/       共享的 VS Code 配置（编译任务、Cortex-Debug 调试、IntelliSense）
 docs/          硬件接口、软件架构、协作交接、任务板、开发环境、GitHub 同步
 build_sch/     原理图与设计图的生成脚本和 PNG
