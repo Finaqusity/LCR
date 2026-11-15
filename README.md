@@ -22,21 +22,25 @@
 
 ## 快速开始（Windows PowerShell）
 
+> 推荐用 VS Code 直接开发：打开本仓库 → `Ctrl+Shift+B` 编译（默认 `build (Debug)`）→ 接 DAPmini 后 `F5` 调试（Cortex-Debug + pyOCD）。命令行方式如下。
+
 ```powershell
 # 0. 接好 DAPmini（CMSIS-DAP：SWDIO/SWCLK/GND，可选 NRST），确认能识别
 powershell -ExecutionPolicy Bypass -File tools\flash.ps1 -List
 
 # 1. 编译（默认 Debug；加 -Release 出优化版，-Clean 先清空）
 powershell -ExecutionPolicy Bypass -File tools\build.ps1
-#    产物：firmware\build\lcr-fw.hex / .bin / .map（以及无扩展名的 ELF）
+#    产物：firmware\build\lcr-fw.elf / .hex / .bin / .map
 
 # 2. 烧录并复位（pyOCD，目标 stm32f407vetx）
 powershell -ExecutionPolicy Bypass -File tools\flash.ps1
 
-# 3. 看串口（USART1 → CH340，115200 8N1）
-python tools\monitor.py --list
-python tools\monitor.py --port COM5
+# 3. 看串口（USART1 → CH340，115200 8N1；脚本会自动找可用 python）
+powershell -ExecutionPolicy Bypass -File tools\monitor.ps1 --list
+powershell -ExecutionPolicy Bypass -File tools\monitor.ps1 --port COM5
 ```
+
+> 直接调 `python tools\monitor.py` 会命中 Windows Store 的 `python` 占位别名而报 "Python was not found"，请用 `tools\monitor.ps1`（详见 [docs/开发环境.md](docs/开发环境.md) §1/§3）。
 
 烧录成功、串口连上后，当前 **Day1 骨架固件**应输出类似：
 
@@ -66,8 +70,9 @@ $ tick=1000
 
 ```
 firmware/      固件（CMake + arm-none-eabi-gcc，裸机 CMSIS）
-tools/         build.ps1 / flash.ps1 / monitor.py
-docs/          硬件接口、开发环境、GitHub 同步、硬件设计 markdown
+tools/         build.ps1 / flash.ps1 / monitor.ps1 / monitor.py
+.vscode/       共享的 VS Code 配置（编译任务、Cortex-Debug 调试、IntelliSense）
+docs/          硬件接口、软件架构、协作交接、任务板、开发环境、GitHub 同步
 build_sch/     原理图与设计图的生成脚本和 PNG
 build_pcb/     Gerber 与 PCB 渲染
 *.docx/.pdf    交付文档

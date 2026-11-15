@@ -1,0 +1,40 @@
+{
+  "C_Cpp.default.compilerPath": "D:/Tools/embedded/arm-gcc-14.2/bin/arm-none-eabi-gcc.exe",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/firmware/Core/Inc",
+    "${workspaceFolder}/firmware/Drivers/CMSIS/Include",
+    "${workspaceFolder}/firmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include"
+  ],
+  "C_Cpp.default.defines": ["STM32F407xx", "HSE_VALUE=8000000U"],
+  "cmake.sourceDirectory": "${workspaceFolder}/firmware",
+  "cmake.buildDirectory": "${workspaceFolder}/firmware/build",
+  "cmake.generator": "Ninja",
+  "cmake.configureOnOpen": false,
+  "files.associations": {
+    "*.ld": "linkerscript",
+    "*.s": "arm",
+    "*.h": "c"
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.eol": "\n",
+  "editor.rulers": [100],
+  "search.exclude": {
+    "**/build": true,
+    "**/__pycache__": true,
+    "DeepSeek": true,
+    "_ds": true,
+    "build_pcb": true,
+    "build_sch": true
+  },
+  "files.watcherExclude": {
+    "**/firmware/build/**": true,
+    "DeepSeek/**": true,
+    "_ds/**": true
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "git.autofetch": false,
+  "git.confirmSync": false
+}

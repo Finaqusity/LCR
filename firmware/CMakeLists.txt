@@ -28,6 +28,9 @@ set(SOURCES
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
+# 让 ELF 带 .elf 后缀（默认无扩展名），便于 Cortex-Debug / pyOCD / GDB 指向
+set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".elf")
+
 target_include_directories(${PROJECT_NAME} PRIVATE
     Core/Inc
     ${DRIVERS}/CMSIS/Include

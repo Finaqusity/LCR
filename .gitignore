@@ -20,7 +20,13 @@ __pycache__/
 .pytest_cache/
 
 # ---- IDE / 工具 ----
-.vscode/
+# .vscode 只提交共享配置，个人覆盖项不要提交
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+!.vscode/extensions.json
 .idea/
 *.uvguix.*
 JLinkLog.txt

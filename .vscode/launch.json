@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "调试 (pyOCD / CMSIS-DAP)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "pyocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/firmware/build/lcr-fw.elf",
+      "targetId": "stm32f407vetx",
+      "runToEntryPoint": "main",
+      "armToolchainPath": "D:/Tools/embedded/arm-gcc-14.2/bin",
+      "preLaunchTask": "build (Debug)",
+      "showDevDebugOutput": "none"
+    },
+    {
+      "name": "附加到运行中的目标 (pyOCD)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "pyocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/firmware/build/lcr-fw.elf",
+      "targetId": "stm32f407vetx",
+      "armToolchainPath": "D:/Tools/embedded/arm-gcc-14.2/bin",
+      "showDevDebugOutput": "none"
+    }
+  ]
+}

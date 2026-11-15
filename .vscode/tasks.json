@@ -1,0 +1,58 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "tasks": [
+    {
+      "label": "build (Debug)",
+      "detail": "tools/build.ps1 —— CMake+Ninja+arm-none-eabi-gcc，产物 firmware/build/lcr-fw.elf/.hex/.bin",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/build.ps1"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "build (Release)",
+      "detail": "tools/build.ps1 -Release（-O2）",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/build.ps1", "-Release"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "clean + build (Debug)",
+      "detail": "删除 firmware/build 后重编",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/build.ps1", "-Clean"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "flash (pyOCD)",
+      "detail": "烧录 firmware/build/lcr-fw.hex 并复位（需 DAPmini 已连接）",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/flash.ps1"],
+      "dependsOn": "build (Debug)",
+      "problemMatcher": []
+    },
+    {
+      "label": "probe list",
+      "detail": "pyocd list —— 检查 CMSIS-DAP 探针是否识别",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/flash.ps1", "-List"],
+      "problemMatcher": []
+    },
+    {
+      "label": "serial monitor (115200)",
+      "detail": "tools/monitor.ps1（自动找可用 python，避开 Windows Store 别名）",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/monitor.ps1"],
+      "problemMatcher": []
+    }
+  ]
+}
