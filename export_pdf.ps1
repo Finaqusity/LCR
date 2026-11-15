@@ -2,30 +2,17 @@ param(
     [Parameter(Mandatory = $true)][string]$Docx,
     [Parameter(Mandatory = $true)][string]$Pdf
 )
-$ErrorActionPreference = 'Stop'
-$logFile = Join-Path (Split-Path -Parent $Pdf) 'export_pdf.log'
-function Log([string]$m) { "$(Get-Date -Format HH:mm:ss) $m" | Add-Content -Encoding UTF8 $logFile }
-
-"START ap=$([System.Threading.Thread]::CurrentThread.GetApartmentState())" | Set-Content -Encoding UTF8 $logFile
-$word = $null
-$doc = $null
-try {
-    $word = New-Object -ComObject Word.Application
-    Log "WORD_OK"
-    $word.Visible = $false
-    $word.DisplayAlerts = 0
-    $word.Options.Pagination = $true
-    Log "SETTINGS_OK"
-    $doc = $word.Documents.Open($Docx, $false, $true)
-    Log "OPEN_OK pages=$($doc.ComputeStatistics(2))"
-    $doc.ExportAsFixedFormat($Pdf, 17)
-    Log "EXPORT_OK"
-}
-catch {
-    Log ("ERR " + $_.Exception.Message)
-}
-finally {
-    if ($doc) { try { $doc.Close(0); Log "CLOSED" } catch { Log "CLOSE_ERR" } }
-    if ($word) { try { $word.Quit(); Log "QUIT" } catch { Log "QUIT_ERR" } }
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
-}
+$ErrorActionPreference = "Stop"
+$log = Join-Path (Split-Path -Parent $Pdf) "export_pdf.log"
+"BEGIN $(Get-Date -Format o)" | Out-File -FilePath $log -Encoding utf8
+$word = New-Object -ComObject Word.Application
+$word.Visible = $false
+$word.DisplayAlerts = 0
+$doc = $word.Documents.Open($Docx, $false, $true)
+"PAGES $($doc.ComputeStatistics(2))" | Out-File -FilePath $log -Append -Encoding utf8
+$doc.ExportAsFixedFormat($Pdf, 17)
+$doc.Close($false)
+$word.Quit()
+[System.Runtime.InteropServices.Marshal]::ReleaseComObject($doc) | Out-Null
+[System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
+"OK $(Get-Date -Format o)" | Out-File -FilePath $log -Append -Encoding utf8

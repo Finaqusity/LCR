@@ -1,0 +1,29 @@
+# 统一换行：源码用 LF；PowerShell 脚本保留 CRLF（本机 PS 5.1 习惯）
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止换行转换
+*.pdf  -text
+*.png  -text
+*.jpg  -text
+*.docx -text
+*.xlsx -text
+*.pptx -text
+*.zip  -text
+*.G*   -text
+*.DRL  -text
+*.GKO  -text
+*.GBL  -text
+*.GBO  -text
+*.GBP  -text
+*.GBS  -text
+*.GTL  -text
+*.GTO  -text
+*.GTP  -text
+*.GTS  -text
+*.G1   -text
+*.G2   -text
+*.GDD  -text
+*.GDL  -text

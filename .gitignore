@@ -1,6 +1,10 @@
-# ---- 编译产物 ----
+# ---- 构建产物（不要提交）----
 firmware/build/
 build/
+build_pcb/img/
+build_sch/pages/
+build_sch/hwpages/
+build_sch/sch/
 *.o
 *.d
 *.elf
@@ -8,19 +12,25 @@ build/
 *.bin
 *.map
 *.su
+*.log
 
 # ---- Python ----
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# ---- 工具/IDE ----
+# ---- IDE / 工具 ----
 .vscode/
 .idea/
 *.uvguix.*
 JLinkLog.txt
 
-# ---- 临时文件 ----
+# ---- 临时与归档（体积大 / 只在本机用）----
+DeepSeek/
+_ds/
+_me6211.txt
+firmware/_cubemx/
+preview.pdf
 ~$*.docx
 ~$*.xlsx
 Thumbs.db
