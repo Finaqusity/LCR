@@ -23,18 +23,35 @@
 ## 快速开始（Windows PowerShell）
 
 ```powershell
-# 1. 编译
-powershell -ExecutionPolicy Bypass -File tools\build.ps1
+# 0. 接好 DAPmini（CMSIS-DAP：SWDIO/SWCLK/GND，可选 NRST），确认能识别
+powershell -ExecutionPolicy Bypass -File tools\flash.ps1 -List
 
-# 2. 烧录（DAPmini / CMSIS-DAP，pyOCD）
+# 1. 编译（默认 Debug；加 -Release 出优化版，-Clean 先清空）
+powershell -ExecutionPolicy Bypass -File tools\build.ps1
+#    产物：firmware\build\lcr-fw.hex / .bin / .map（以及无扩展名的 ELF）
+
+# 2. 烧录并复位（pyOCD，目标 stm32f407vetx）
 powershell -ExecutionPolicy Bypass -File tools\flash.ps1
 
-# 3. 看串口（USART1: PA9/PA10，115200 8N1）
+# 3. 看串口（USART1 → CH340，115200 8N1）
 python tools\monitor.py --list
 python tools\monitor.py --port COM5
 ```
 
-工具链已装好（`D:\Tools\embedded\arm-gcc-14.2`、Python 里的 cmake/ninja/pyocd），细节见 [docs/开发环境.md](docs/开发环境.md)。
+烧录成功、串口连上后，当前 **Day1 骨架固件**应输出类似：
+
+```
+========================================
+  LCR Meter Firmware v0.1.0 (build ...)
+  MCU: STM32F407VET6 @ 16 MHz (HSI, 待 M0 换成 168 MHz)
+========================================
+$ tick=500
+$ tick=1000
+```
+
+输入 `?` 看当前命令表、`v` 看版本（命令会随 M0 起逐步接入）。**注意**：现在烧进去的只是心跳/串口骨架，测量功能按 [docs/软件架构.md](docs/软件架构.md) 与 [docs/软件任务板.md](docs/软件任务板.md) 的 M0–M8 推进；骨架里 LED 暂用 PD12，而实物 LED 在 PC13（M0-1 会修正，测试以串口为准）。
+
+工具链已装好（`D:\Tools\embedded\arm-gcc-14.2`、Python 里的 cmake/ninja/pyocd），构建告警与坑见 [docs/开发环境.md](docs/开发环境.md)。
 
 ## 硬件要点
 
