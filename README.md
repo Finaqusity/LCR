@@ -6,20 +6,29 @@
 
 ## 文档索引
 
+### 核心文档（`docs/`）
+
 | 文档 | 内容 |
 |---|---|
-| [docs/硬件接口.md](docs/硬件接口.md) | **固件开发的唯一接口依据**：MCU 引脚、外设配置、AD9833 频率字、ADC/TIM8 同步采样、继电器映射、测量与校准流程、串口协议（注意：与架构文档 §14.1 冲突处以架构文档为准） |
+| [docs/硬件接口.md](docs/硬件接口.md) | **固件开发的唯一接口依据**：MCU 引脚、外设配置、AD9833 频率字、ADC/TIM2 同步采样、继电器映射、测量与校准流程、串口协议（与架构文档 §14.1 冲突处以架构文档为准） |
 | [docs/软件架构.md](docs/软件架构.md) | **软件架构 v1.0（权威）**：分层与 C API 契约、寄存器级驱动、折叠 DFT、测量内核、三级校准、内存/Flash/时序、验收与里程碑、与 `硬件接口.md` 的 30 条差异汇总 |
 | [docs/软件协作交接说明.md](docs/软件协作交接说明.md) | **给队友 AI Agent 的交接说明**：必读顺序、权威性规则、工具链与验证门槛、Git 协作、任务队列 M0–M8、编码规范、已知坑 |
 | [docs/软件任务板.md](docs/软件任务板.md) | 共享任务认领板（写作用域 / 验收标准 / 状态） |
-| [docs/交接简报.md](docs/交接简报.md) | **群发版一页上手**：三分钟跑通、必读顺序、15 条定稿红线、可接任务、协作规则、给 AI Agent 的开场指令 |
-| [docs/开发环境.md](docs/开发环境.md) | 工具链路径与版本、编译/烧录/串口三条命令、VS Code 调试、构建坑 |
+| [docs/交接简报.md](docs/交接简报.md) | **群发版一页上手**：三分钟跑通、必读顺序、15 条定稿红线、可接任务、协作规则、给 AI Agent 的开场指令（[PDF](docs/交接简报.pdf)） |
+| [docs/开发环境.md](docs/开发环境.md) | 工具链路径与版本、编译/烧录/串口三条命令、VS Code 调试、CubeMX 用法、构建坑 |
 | [docs/GitHub同步.md](docs/GitHub同步.md) | 远端仓库创建、首次推送、日常 pull/commit/push、大文件与协作约定 |
-| [RLC电桥测量原理详解.docx](RLC电桥测量原理详解.docx) / [.pdf](RLC电桥测量原理详解.pdf) | 原理详解（13 章 + 附录，60 页）——"为什么这么设计" |
-| [硬件设计-六层板.docx](硬件设计-六层板.docx) / [.pdf](硬件设计-六层板.pdf) | 叠层、电源、接地、分区、最小系统、布线规则、工艺与检查清单 |
-| [测量部分原理图示意.docx](测量部分原理图示意.docx) / [.pdf](测量部分原理图示意.pdf) | AFE 四张原理图（信号源 / 前端 / 六档 / 双通道）+ BOM |
-| [模拟部分原理图集.pdf](模拟部分原理图集.pdf) | S0–S5 六页总览，画图/接线时对照用 |
-| `build_pcb/gerber/` | 已送样的 Gerber（4 层，100×100 mm） |
+
+### 设计与原理资料
+
+| 文档 | 内容 |
+|---|---|
+| [docs/硬件设计思路.md](docs/硬件设计思路.md) | 讲解版硬件设计思路（答辩 / 报告素材）：信号链、量程、校准、器件选型 |
+| [docs/硬件设计-六层板.md](docs/硬件设计-六层板.md) | 六层板设计细则（最终投的是四层板，本文为设计依据与存档） |
+| [docs/硬件设计-分板与四层板.md](docs/硬件设计-分板与四层板.md) | 分板 / 四层板阶段方案记录（存档） |
+| [docs/硬件设计-供电与时钟.md](docs/硬件设计-供电与时钟.md) | 电源树与时钟专题 |
+| [docs/交付物/](docs/交付物/) | 导出的 docx/pdf 成品（原理详解 60 页、硬件设计思路、六层板、原理图、原始题目），来源与重生成命令见 [docs/交付物/README.md](docs/交付物/README.md) |
+| [docs/历史/](docs/历史/) | 已被取代的旧文档（仅存档） |
+| [`build_pcb/gerber/`](build_pcb/gerber/) | 已送样的 Gerber（4 层，100×100 mm） |
 
 ## 快速开始（Windows PowerShell）
 
@@ -71,12 +80,14 @@ $ tick=1000
 
 ```
 firmware/      固件（CMake + arm-none-eabi-gcc，裸机 CMSIS）
-tools/         build.ps1 / flash.ps1 / monitor.ps1 / monitor.py / cubemx.ps1
+tools/         build.ps1 / flash.ps1 / monitor.ps1 / monitor.py / cubemx.ps1 / export_pdf.ps1
 .vscode/       共享的 VS Code 配置（编译任务、Cortex-Debug 调试、IntelliSense）
-docs/          硬件接口、软件架构、协作交接、任务板、开发环境、GitHub 同步
+docs/          核心文档（硬件接口、软件架构、协作交接、任务板、开发环境、GitHub 同步）
+docs/交付物/   导出的 docx/pdf 成品与原始题目（来源见该目录 README.md）
+docs/历史/     过时文档存档
 build_sch/     原理图与设计图的生成脚本和 PNG
 build_pcb/     Gerber 与 PCB 渲染
-*.docx/.pdf    交付文档
+DeepSeek/, _ds/  本地草稿区（gitignore：笔记 / 临时脚本 / 数据手册）
 ```
 
 ## 状态

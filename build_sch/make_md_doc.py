@@ -15,7 +15,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "硬件设计-六层板.md")
-OUT = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else os.path.join(ROOT, "硬件设计-六层板.docx")
+OUT = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else os.path.join(ROOT, "docs", "交付物", "硬件设计-六层板.docx")
 DOC_TITLE = sys.argv[3] if len(sys.argv) > 3 else "硬件设计"
 
 BODY_FONT = "宋体"

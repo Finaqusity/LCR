@@ -20,7 +20,7 @@ function Find-Exe($name) {
     $known = "C:\Users\Finaqusity\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\Scripts"
     $p = Join-Path $known $name
     if (Test-Path $p) { return $p }
-    throw "找不到 $name，请先按 docs\环境搭建.md 安装"
+    throw "找不到 $name，请先按 docs\开发环境.md 安装"
 }
 
 $pyocd = Find-Exe "pyocd.exe"

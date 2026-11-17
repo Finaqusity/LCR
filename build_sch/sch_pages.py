@@ -207,7 +207,7 @@ def image_page(pdf, title, sub, no, png, notes):
 
 
 def main():
-    p = os.path.join(ROOT, "模拟部分原理图集.pdf")
+    p = os.path.join(ROOT, "docs", "交付物", "模拟部分原理图集.pdf")
     with PdfPages(p) as pdf:
         s0(pdf)
         s1(pdf)

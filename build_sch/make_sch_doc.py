@@ -9,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.path.dirname(HERE), "测量部分原理图示意.docx")
+OUT = os.path.join(os.path.dirname(HERE), "docs", "交付物", "测量部分原理图示意.docx")
 NAVY = RGBColor(0x1F, 0x38, 0x64)
 BLUE = RGBColor(0x2E, 0x54, 0x96)
 

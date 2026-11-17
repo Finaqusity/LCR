@@ -15,7 +15,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "docs", "硬件设计-六层板.md")
-OUT = os.path.join(ROOT, "硬件设计-六层板.docx")
+OUT = os.path.join(ROOT, "docs", "交付物", "硬件设计-六层板.docx")
 
 BODY_FONT = "宋体"
 HEAD_FONT = "微软雅黑"
