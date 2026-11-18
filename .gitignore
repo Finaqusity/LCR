@@ -1,6 +1,8 @@
 # ---- 构建产物（不要提交）----
 firmware/build/
+firmware/build-release/
 build/
+build-release/
 build_pcb/img/
 build_sch/pages/
 build_sch/hwpages/

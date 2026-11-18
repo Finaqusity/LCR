@@ -1,58 +1,111 @@
-/*
- * LCR 电桥测量装置 —— 固件 Day1 心跳程序
- *   串口：USART1 PA9(TX)/PA10(RX)，115200 8N1
- *   现象：上电后打印启动信息，然后每 500 ms 打印一行 tick，LED 同步翻转；
- *         从串口发任意字符会被回显，发 'v' 打印版本，发 '?' 打印帮助。
- * 这一步只证明：工具链 → 编译 → 烧录 → 串口 → 时钟 全链路是通的。
- */
+/* LCR 自动平衡电桥 RLC 表 —— 应用入口（§4.7 启动顺序、§8.5 主循环）。
+ * 无 RTOS、无 heap、无 VLA。单线程事件循环：proto_poll → ui_poll →
+ * 自动测量 → 喂狗。测量阻塞期间 RX 只入环，结束后由 proto 补解析。
+ *
+ * 一键启动：上电自动测量（默认）+ 串口 A/M + 可选 PD7 按键（CFG_KEY_ENABLE）。
+ * 致命时钟失败仍保留串口交互，但拒绝给出测量值（meas 内部 guard）。 */
+
 #include "board.h"
+#include "board_config.h"
 #include "uart.h"
+#include "dds.h"
+#include "relay.h"
+#include "adc.h"
+#include "i2c_oled.h"
+#include "cal.h"
+#include "meas.h"
+#include "selftest.h"
+#include "log.h"
+#include "proto.h"
+#include "ui.h"
+#include "error.h"
 #include "stm32f4xx.h"
 
-#include <stdio.h>
+#ifdef LCR_SELFTEST
+#include "test.h"
+#endif
 
-#define FW_VERSION "v0.1.0"
+static uint32_t s_next_auto;
+static int      s_auto_on;
+static uint32_t s_led_ms;
 
-static void handle_rx(void)
+/* 上电自动测量 / 周期重测（§8.5）。结果只上 OLED，不刷串口（避免洪水）。 */
+static void auto_measure_poll(void)
 {
-    int c;
-    while ((c = uart_read_byte()) >= 0) {
-        if (c == 'v') {
-            uart_printf("# LCR fw=" FW_VERSION " build=" __DATE__ " " __TIME__ " clk=%lu\r\n",
-                        (unsigned long)SystemCoreClock);
-        } else if (c == '?') {
-            uart_write("# help: v=version ?=help -> 回显任意字符\r\n");
-        } else {
-            uart_printf("# rx: '%c' (%d)\r\n", (c >= 32 && c < 127) ? c : '.', c);
-        }
+    if (s_auto_on == 0) { return; }
+    const uint32_t now = board_millis();
+    if ((int32_t)(now - s_next_auto) < 0) { return; }
+
+    if (board_clock_degraded == 0U) {
+        meas_result_t res;
+        const meas_err_t e = meas_auto(&res);
+        ui_on_result(&res);
+        proto_note_auto_meas();        /* 测量期间缓冲的 A/M → BUSY */
+        log_event(LOG_MEAS, (uint32_t)meas_err_code(e), res.diag32);
+    }
+    if (CFG_AUTO_MEAS_MS > 0U) {
+        s_next_auto = board_millis() + CFG_AUTO_MEAS_MS;
+    } else {
+        s_auto_on = 0;                 /* 0 = 只测一次 */
     }
 }
 
 int main(void)
 {
-    board_init();
-    uart_init(115200U);
+    /* 最早期安全态：PD0–PD6 输出低 → 常闭 10 kΩ 档独自在位（D16/R3）。 */
+    board_relay_pins_low();
 
-    uart_printf("\r\n# ===============================================\r\n");
-    uart_printf("# LCR 电桥测量装置 固件 " FW_VERSION "\r\n");
-    uart_printf("# build: " __DATE__ " " __TIME__ "\r\n");
-    uart_printf("# MCU  : STM32F407VET6  SYSCLK = %lu Hz (HSI 16 MHz)\r\n",
-                (unsigned long)SystemCoreClock);
-    uart_printf("# UART : USART1 PA9/PA10 @115200 8N1  (发送 'v' 查看版本)\r\n");
-    uart_printf("# ===============================================\r\n");
+    board_init();                      /* HSE/PLL 168 MHz、Flash 5WS、SysTick、DWT */
+    uart_init(CFG_UART_BAUD);
+    log_init();
+    proto_init(ui_on_result);
+    proto_banner();
 
-    uint32_t tick = 0U;
-    uint32_t last_led = 0U;
+    board_delay_ms(CFG_DDS_POWERUP_MS);   /* AD9833 上电 ≥20 ms */
+    const int dds_ok = dds_init();
+    relay_init();
+    const int adc_ok = adc_init();
+    const int oled_ok = i2c_oled_init();  /* 失败降级，不致命 */
+    const int cal_ok = cal_init();
+    meas_init();
+    ui_init();
+
+    board_iwdg_start(CFG_IWDG_TIMEOUT_MS);
+
+    const int st = selftest_run(0);       /* 上电快速子集，守 boot 预算 */
+    uart_printf("# boot: dds=%d adc=%d oled=%d cal=%d level=%d boot_status=%08lX\r\n",
+                dds_ok, adc_ok, oled_ok, cal_ok, cal_get_level(),
+                (unsigned long)selftest_status());
+    if (board_clock_degraded != 0U) {
+        uart_write("# WARN: HSE failed, running HSI 16 MHz -- measurement refused\r\n");
+    }
+    if ((st & ~(ST_WDG | ST_OLED)) != 0) {
+        uart_printf("# WARN: selftest fail mask=%08lX (type I for detail)\r\n",
+                    (unsigned long)st);
+    }
+    if (cal_get_level() == 0) {
+        uart_write("# uncalibrated: run CAL A / CAL O / CAL L then SAVE\r\n");
+    }
+    log_event(LOG_BOOT, (uint32_t)st, (uint32_t)cal_get_level());
+
+#ifdef LCR_SELFTEST
+    (void)test_run_golden();              /* 板上金标准回归（§8.6/§10.2） */
+#endif
+
+    s_next_auto = board_millis() + 100U;  /* 上电稍候即自动测一次 */
+    s_auto_on = 1;
+    s_led_ms = board_millis();
 
     for (;;) {
-        handle_rx();
+        proto_poll();                     /* 非阻塞：解析 UART 行命令 */
+        ui_poll();                        /* 慢路径：空闲才整页刷 OLED */
+        auto_measure_poll();              /* 上电自动 / 周期重测 */
 
         const uint32_t now = board_millis();
-        if ((now - last_led) >= 500U) {
-            last_led = now;
+        if ((now - s_led_ms) >= CFG_LED_BLINK_MS) {
             board_led_toggle();
-            tick++;
-            uart_printf("$ tick=%lu ms=%lu\r\n", (unsigned long)tick, (unsigned long)now);
+            s_led_ms = now;
         }
+        board_iwdg_feed();
     }
 }

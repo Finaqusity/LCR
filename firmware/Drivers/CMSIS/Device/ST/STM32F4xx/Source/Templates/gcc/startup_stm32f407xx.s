@@ -79,7 +79,25 @@ LoopCopyDataInit:
   adds r4, r0, r3
   cmp r4, r1
   bcc CopyDataInit
-  
+
+/* Copy .ramfunc (Flash -> SRAM): cal_flash_op must execute from SRAM
+   because Flash is unreadable during erase/program. */
+  ldr r0, =_sramfunc
+  ldr r1, =_eramfunc
+  ldr r2, =_siramfunc
+  movs r3, #0
+  b LoopCopyRamfunc
+
+CopyRamfunc:
+  ldr r4, [r2, r3]
+  str r4, [r0, r3]
+  adds r3, r3, #4
+
+LoopCopyRamfunc:
+  adds r4, r0, r3
+  cmp r4, r1
+  bcc CopyRamfunc
+
 /* Zero fill the bss segment. */
   ldr r2, =_sbss
   ldr r4, =_ebss
