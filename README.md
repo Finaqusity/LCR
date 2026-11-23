@@ -2,7 +2,7 @@
 
 一台基于**自动平衡电桥**的数字 RLC 表：AD9833 产生正弦激励，被测元件串在激励与 I-V 变换器之间；I-V 把流过元件的电流变成电压；两路同步采样后做单 bin DFT，得到复数阻抗 `Z = R + jX`，再换算 R / L / C、频率、品质因数与串并联模型。
 
-> 硬件已定稿（4 层板 100×100 mm，已出 Gerber）。当前阶段：**固件重写**——换新实现者从零实现，交接依据见 [docs/固件重写交接说明.md](docs/固件重写交接说明.md)；此前的架构/固件实现已冻结，仅作参考。
+> 硬件已出 Gerber（4 层板 100×100 mm）。当前阶段：**新固件源码已接通启动、ADC/DMA、自动测量、两键/OLED（默认旋转 180°）、校准与 Flash 双副本**。9 个电脑端 C 测试程序运行通过，23 个 C 源文件通过目标编译；完整链接仍受工具加载错误阻塞，尚无已验证烧录镜像或上板结果。最新操作与验收见 [整机固件操作与验收](docs/rewrite/整机固件操作与验收.md)。用户指定的新网表为连接依据，硬件纠正项见 [硬件核对记录](docs/rewrite/硬件核对与实施记录.md)。新实现位于 `firmware_next/`，此前的应用实现已冻结。
 
 ## 文档索引
 
@@ -10,6 +10,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [docs/rewrite/硬件核对与实施记录.md](docs/rewrite/硬件核对与实施记录.md) | **最新重写记录**：按用户指定网表确认按键、继电器、去耦与 NC 电容，纠正 DDS/通道校准说明，记录数学验证与构建阻塞 |
 | [docs/固件重写交接说明.md](docs/固件重写交接说明.md) | **新实现者的交接依据**：测量原理、题目指标、硬件电路事实、引脚定义、外设限制与安全边界；不规定算法与代码结构 |
 | [docs/硬件接口.md](docs/硬件接口.md) | **固件开发的唯一接口依据**：MCU 引脚、外设配置、AD9833 频率字、ADC/TIM2 同步采样、继电器映射、测量与校准流程、串口协议（与架构文档 §14.1 冲突处以架构文档为准） |
 | [docs/软件架构.md](docs/软件架构.md) | 上一版实现的设计文档 v1.0（已冻结，供参考；新实现不必遵循，见固件重写交接说明）：分层与 C API 契约、寄存器级驱动、折叠 DFT、测量内核、校准、内存/Flash/时序、验收与里程碑 |
@@ -33,7 +34,19 @@
 | [docs/历史/](docs/历史/) | 已被取代的旧文档（仅存档） |
 | [`build_pcb/gerber/`](build_pcb/gerber/) | 已送样的 Gerber（4 层，100×100 mm） |
 
-## 快速开始（Windows PowerShell）
+## 新固件验证与构建（Windows PowerShell）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/rewrite/check_host.ps1
+powershell -ExecutionPolicy Bypass -File tools/rewrite/check_core.ps1
+powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1
+```
+
+前两条已通过；完整构建目前因工具 WinError 623 失败。新产物预期位于 `firmware_next/build-target/`；当前没有已验证的新镜像。两键操作为 PB1 切换串/并联，PB2 启动/停止，长按 PB2 进入设置。详见新工程 [README](firmware_next/README.md)。
+
+## 旧固件骨架的快速开始（历史流程）
+
+> 以下脚本针对旧 `firmware/` 骨架，不是重写工程的构建/烧录入口，不要把旧镜像当作新实现。
 
 > 推荐用 VS Code 直接开发：打开本仓库 → `Ctrl+Shift+B` 编译（默认 `build (Debug)`）→ 接 DAPmini 后 `F5` 调试（Cortex-Debug + pyOCD）。命令行方式如下。
 
@@ -104,5 +117,5 @@ _ds/           本机数据手册 PDF（gitignore，不入库；索引见 docs/�
 - [x] 仓库整理：交付物归入 `docs/交付物/`、Drivers 裁剪 38.5→6.1 MB、原理源文与数值核算脚本入库
 - [x] 固件重写交接说明 `docs/固件重写交接说明.md`（测量原理、指标、引脚、硬件限制；不规定算法与代码结构）
 - [x] 固件骨架（时钟/USART/LED）已入库；旧版完整实现在分支 `feat/abb-rlc-firmware`（评审见 [Issue #1](https://github.com/Finaqusity/LCR/issues/1)，已冻结）
-- [ ] 固件重写：由新实现者按交接说明从零实现（原 M0–M8 计划作废）
+- [ ] 固件重写验收：启动、采集驱动、整机调度、两键/OLED、校准与双副本源码已接通并完成主机测试/目标编译；完整链接与上板验收未完成（原 M0–M8 计划作废，最新状态见 `docs/rewrite/整机固件操作与验收.md`）
 - [ ] 焊接、上电自检、指标实测（24 项验收矩阵）
