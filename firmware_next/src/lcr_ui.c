@@ -58,7 +58,7 @@ static void pixel(lcr_canvas *canvas, unsigned x, unsigned y) {
     if (x < 128u && y < 64u) canvas->pixels[(y / 8u) * 128u + x] |= (uint8_t)(1u << (y % 8u));
 }
 void lcr_canvas_text(lcr_canvas *canvas, unsigned x, unsigned y, const char *text, unsigned scale) {
-    if (!canvas || !text || !scale || scale > 2u) return;
+    if (!canvas || !text || !scale || scale > 4u) return;
     while (*text && x < 128u) {
         unsigned ch = (unsigned char)*text++;
         if (ch < 32u || ch > 126u) ch = '?';
@@ -121,8 +121,9 @@ void lcr_ui_number(char *out, size_t size, double value, const char *unit) {
 void lcr_ui_message(lcr_canvas *c, const char *title, const char *line1, const char *line2) {
     lcr_canvas_clear(c);
     lcr_canvas_text(c, 0u, 0u, title, 1u);
-    lcr_canvas_text(c, 0u, 21u, line1, 1u);
-    lcr_canvas_text(c, 0u, 35u, line2, 1u);
+    const unsigned big = line1 && strlen(line1) <= 10u ? 2u : 1u;
+    lcr_canvas_text(c, 0u, big == 2u ? 14u : 21u, line1, big);
+    lcr_canvas_text(c, 0u, big == 2u ? 36u : 35u, line2, 1u);
 }
 void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, const char *status, int details) {
     char text[40];
@@ -135,17 +136,34 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
     const char *unit;
     if (!lcr_ui_value(m, model, &value, &unit)) (void)snprintf(text, sizeof(text), "----");
     else lcr_ui_number(text, sizeof(text), value, unit);
-    /* Value and unit remain on separate lines so 128px cannot truncate the unit. */
+    /* Value line: pick the largest glyph scale whose digits and unit still fit 128 px. */
     char *separator = strchr(text, ' ');
     if (separator) *separator++ = '\0';
-    lcr_canvas_text(c, 0u, 14u, text, 2u);
-    if (separator) lcr_canvas_text(c, 89u, 23u, separator, 1u);
+    const unsigned digits = (unsigned)strlen(text);
+    const unsigned unit_len = separator ? (unsigned)strlen(separator) : 0u;
+    unsigned value_scale = 2u;
+    const unsigned value_y = details ? 14u : 10u;
+    if (!details) {
+        const unsigned wide = digits * 18u + (unit_len ? 4u + unit_len * 6u : 0u);
+        if (wide <= 128u) value_scale = 3u;
+    }
+    unsigned unit_scale = 1u;
+    if (unit_len && digits * 6u * value_scale + 4u + unit_len * 12u <= 128u) unit_scale = 2u;
+    const unsigned value_width = digits * 6u * value_scale +
+                                 (unit_len ? 4u + unit_len * 6u * unit_scale : 0u);
+    const unsigned value_x = value_width < 128u ? (128u - value_width) / 2u : 0u;
+    lcr_canvas_text(c, value_x, value_y, text, value_scale);
+    if (separator)
+        lcr_canvas_text(c, value_x + digits * 6u * value_scale + 4u,
+                        value_y + 10u * (value_scale - unit_scale) / 2u, separator, unit_scale);
+    const unsigned info_y = details ? 37u : 41u;
+    const unsigned cal_y = details ? 50u : 52u;
     if (m && m->valid && m->range_index < LCR_RANGE_COUNT) {
         if (details) {
             char number[24],q[16],d[16];
             lcr_ui_number(number,sizeof(number),m->parameters.rs_ohm,"OHM");
             (void)snprintf(text,sizeof(text),"Rs:%s",number);
-            lcr_canvas_text(c,0u,37u,text,1u);
+            lcr_canvas_text(c,0u,info_y,text,1u);
             if(m->parameters.available&LCR_PARAM_Q)lcr_ui_number(q,sizeof(q),m->parameters.q,"");
             else (void)snprintf(q,sizeof(q),"--");
             if(m->parameters.available&LCR_PARAM_D)lcr_ui_number(d,sizeof(d),m->parameters.d,"");
@@ -154,7 +172,7 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
         } else {
             (void)snprintf(text, sizeof(text), "%lu HZ  RF:%lu", (unsigned long)(m->actual_hz + 0.5),
                            (unsigned long)lcr_nominal_rf[m->range_index]);
-            lcr_canvas_text(c, 0u, 37u, text, 1u);
+            lcr_canvas_text(c, 0u, info_y, text, 1u);
             if(!m->calibration_flags) (void)snprintf(text,sizeof(text),"UNCAL%s",m->parameters.negative_resistance?" NEG-R":"");
             else (void)snprintf(text,sizeof(text),"CAL:%s%s%s%s",
                 m->calibration_flags&LCR_CAL_CHANNEL?"CH ":"",
@@ -162,6 +180,6 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
                 m->calibration_flags&LCR_CAL_FIXTURE?"OPEN":"",
                 m->parameters.negative_resistance?" NEG-R":"");
         }
-        lcr_canvas_text(c, 0u, 50u, text, 1u);
+        lcr_canvas_text(c, 0u, cal_y, text, 1u);
     } else lcr_canvas_text(c, 0u, 47u, "KEY:START HOLD:MENU", 1u);
 }
