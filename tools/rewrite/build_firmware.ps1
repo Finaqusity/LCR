@@ -1,4 +1,4 @@
-﻿param([string]$Toolchain='D:\Tools\embedded\arm-gcc-14.2\bin')
+param([string]$Toolchain='D:\Tools\embedded\arm-gcc-14.2\bin',[switch]$WaveTest)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $sourceRoot=Join-Path $projectRoot 'firmware_next'
@@ -14,6 +14,10 @@ $flags=@('-mcpu=cortex-m4','-mthumb','-mfpu=fpv4-sp-d16','-mfloat-abi=hard','-st
     "-I$(Join-Path $sourceRoot 'include')",
     "-I$(Join-Path $projectRoot 'firmware\Drivers\CMSIS\Include')",
     "-I$(Join-Path $projectRoot 'firmware\Drivers\CMSIS\Device\ST\STM32F4xx\Include')")
+if($WaveTest){
+    $flags+=@('-DLCR_WAVE_TEST=1')
+}
+$name=if($WaveTest){'lcr-wave'}else{'lcr-next'}
 $objects=@()
 foreach($directory in @('src','platform')) {
     foreach($source in Get-ChildItem (Join-Path $sourceRoot $directory) -Filter '*.c' -File) {
@@ -23,13 +27,13 @@ foreach($directory in @('src','platform')) {
         $objects+=$object
     }
 }
-$elf=Join-Path $outputDirectory 'lcr-next.elf'
-$map=Join-Path $outputDirectory 'lcr-next.map'
+$elf=Join-Path $outputDirectory "$name.elf"
+$map=Join-Path $outputDirectory "$name.map"
 & $compiler @flags @objects -nostartfiles '-specs=nano.specs' '-specs=nosys.specs' `
     "-T$(Join-Path $sourceRoot 'STM32F407VE.ld')" '-Wl,--gc-sections' "-Wl,-Map=$map" '-Wl,--start-group' -lc -lm '-Wl,--end-group' -o $elf
 if($LASTEXITCODE -ne 0){throw 'Firmware link failed'}
 foreach($format in @(@('ihex','hex'),@('binary','bin'))) {
-    & (Join-Path $Toolchain 'arm-none-eabi-objcopy.exe') -O $format[0] $elf (Join-Path $outputDirectory "lcr-next.$($format[1])")
+    & (Join-Path $Toolchain 'arm-none-eabi-objcopy.exe') -O $format[0] $elf (Join-Path $outputDirectory "$name.$($format[1])")
     if($LASTEXITCODE -ne 0){throw 'Image conversion failed'}
 }
 & (Join-Path $Toolchain 'arm-none-eabi-size.exe') $elf

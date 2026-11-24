@@ -1,4 +1,4 @@
-﻿# 新固件独立工程
+# 新固件独立工程
 
 当前源码已接通复位启动、板级初始化、双 ADC/TIM/DMA、测量与校准调度、单键/OLED 和 Flash 双副本保存。没有读取或修改旧应用代码。
 
@@ -54,6 +54,19 @@ powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1
 `check_host.ps1` 使用本机 MSVC/Windows SDK 编译并执行 9 个主机测试，可通过 `-VsRoot` 和 `-WindowsSdkRoot` 覆盖路径，测试断言保持开启。`check_core.ps1` 使用 ARMCLANG 6.7 和 Keil CMSIS 5.0.1 核心头做逐源目标编译（未修改厂家文件）。`build_firmware.ps1` 默认使用 `D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 指定其他 GNU 工具链 bin 目录；产物在 `firmware_next/build-target/`，与旧工程的 `firmware/build/` 分开。
 
 本目录 CMake 仍只构建电脑端逻辑测试；本机 CMake/Ninja 的 MSVC 探测存在先前记录的 C1902/路径编码问题，不能称 CMake/CTest 已通过。
+
+## TP1 波形自检（模拟前端 bring-up）
+
+用于在示波器上确认激励链（AD9833 → 运放 → BUF634A → TP1）是否工作。该镜像不启动测量、不吸合任何量程继电器，只保持 1 kHz 连续正弦：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1 -WaveTest
+python -m pyocd flash -t stm32f407vgtx --erase sector firmware_next/build-target/lcr-wave.hex
+```
+
+预期：TP1 上 1 kHz 正弦、约 0.5 Vrms（幅度由 VR1 决定），直流偏置 3.3 V，示波器用 AC 耦合观察；PC13 LED 1 Hz 闪烁；UART 打印 `LCR WAVE TEST: TP1 1 kHz, relays released`。所有量程继电器保持释放，DUT 基本空载，因此 TP1 反映的是激励链本身的输出；若此镜像下 TP1 无波形，应先查 PA8/MCO1 8 MHz MCLK、AD9833 供电与 SPI1 写入，而不是测量算法。
+
+检查完模拟前端后，重新构建普通镜像（不带 `-WaveTest`）并烧回 `lcr-next.hex`。该镜像已在 ST-Link 上验证：`SystemCoreClock=168 MHz`、`SPI1 SPE=1`、`dds_muted=0`（AD9833 RESET 已释放）、`GPIOD ODR=0`（继电器全释放）、无 HardFault。
 
 ## 验证与限制
 

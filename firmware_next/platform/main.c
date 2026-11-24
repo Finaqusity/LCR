@@ -8,7 +8,36 @@ static lcr_cal_profile boot_profile;
 static int frequency(void *context,uint32_t hz) { (void)context;return lcr_board_dds_frequency(hz); }
 static int save(void *context,lcr_cal_profile *profile) { (void)context;return lcr_journal_save(lcr_board_journal(),profile); }
 
+#if defined(LCR_WAVE_TEST)
+/* Analog bring-up image: board init leaves the AD9833 at 1 kHz but in reset.
+ * Release reset without starting any measurement, so TP1 carries a continuous
+ * 1 kHz sine and the fixture is unloaded (all range relays released). */
+static void wave_test_run(void) {
+    if (!lcr_board_init()) {
+        for (;;) { lcr_board_led(1);__WFI(); }
+    }
+    const lcr_frontend_io io = lcr_board_frontend_io();
+    io.relays(io.context, 0u);
+    if (!io.mute(io.context, 0)) {
+        for (;;) { lcr_board_led(1);__WFI(); }
+    }
+    (void)lcr_board_puts("LCR WAVE TEST: TP1 1 kHz, relays released\r\n");
+    uint32_t next = lcr_board_millis();
+    uint32_t on = 0u;
+    for (;;) {
+        const uint32_t now = lcr_board_millis();
+        if ((uint32_t)(now - next) >= 500u) {
+            next = now; on ^= 1u; lcr_board_led((int)on);
+        }
+        __WFI();
+    }
+}
+#endif
+
 int main(void) {
+#if defined(LCR_WAVE_TEST)
+    wave_test_run();
+#endif
     if (!lcr_board_init()) {
         /* Initialization failed: never start the acquisition/measurement scheduler. */
         for (;;) { lcr_board_led(1);__WFI(); }
