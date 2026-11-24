@@ -62,11 +62,11 @@ static void step(simulator*s) {
     s->app->dirty=0u;
 }
 static void cal_start(simulator*s,unsigned menu) {
-    lcr_app_event(s->app,LCR_KEY2_LONG,s->now);
+    lcr_app_event(s->app,LCR_KEY_LONG,s->now);   /* Stop and open the menu. */
     s->app->page=LCR_PAGE_MENU;s->app->menu=menu;
-    lcr_app_event(s->app,LCR_KEY2_SHORT,s->now);
+    lcr_app_event(s->app,LCR_KEY_LONG,s->now);   /* Activate the menu entry. */
     assert(s->app->page==LCR_PAGE_CONFIRM);
-    lcr_app_event(s->app,LCR_KEY2_SHORT,s->now);
+    lcr_app_event(s->app,LCR_KEY_LONG,s->now);   /* Execute after confirmation. */
     assert(s->app->page==LCR_PAGE_CAL);
 }
 static void cal_finish(simulator*s) {
@@ -84,33 +84,33 @@ int main(void) {
     const lcr_app_io io={acquisition,&sim,save_io};
     lcr_cal_profile_nominal(&profile,123u,456u,8000000.0);
     assert(lcr_app_init(&app,io,&profile,0u,0u));
-    lcr_app_event(&app,LCR_KEY2_SHORT,0u);
+    lcr_app_event(&app,LCR_KEY_SHORT,0u);
     while(!app.last.valid && sim.now<20000u)step(&sim);
     assert(app.last.valid && app.running && !app.scan && app.active_frequency==1u);
     assert(fabs(app.last.corrected_z.re-1000.0)<3.0);
     const unsigned starts=sim.starts;const lcr_measurement held=app.last;
-    lcr_app_event(&app,LCR_KEY1_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
     assert(app.model==LCR_MODEL_PARALLEL && sim.starts==starts && memcmp(&held,&app.last,sizeof(held))==0);
-    lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
     assert(!app.running && sim.muted && !sim.active && app.last.valid);
     for(unsigned kind=1u;kind<=2u;++kind) {
         const double values[3]={kind==1u?10e-6:100e-3,kind==1u?1e-9:100e-6,kind==1u?10e-12:10e-6};
         for(unsigned n=0u;n<3u;++n) {
             sim.component=kind;sim.component_value=values[n];sim.resistance=0.3;
-            app.last.valid=0u;lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+            app.last.valid=0u;lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
             const uint32_t deadline=sim.now+30000u;
             while(!app.last.valid && sim.now<deadline)step(&sim);
             assert(app.last.valid && app.running && app.last.parameters.kind==(kind==1u?LCR_COMPONENT_C:LCR_COMPONENT_L));
             const double value=kind==1u?app.last.parameters.cs_f:app.last.parameters.ls_h;
             assert(fabs(value/values[n]-1.0)<0.005);
-            lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+            lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
             assert(!app.running && sim.muted);
         }
     }
     sim.component=0u;sim.resistance=1000.0;
     const unsigned stopped_starts=sim.starts;
-    lcr_app_event(&app,LCR_KEY2_LONG,sim.now);app.menu=5u;
-    lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now);app.menu=5u;
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now);
     assert(app.page==LCR_PAGE_MESSAGE && sim.starts==stopped_starts);
     sim.gain=1.02;sim.phase=0.03;
     cal_start(&sim,2u);cal_finish(&sim);
@@ -122,7 +122,7 @@ int main(void) {
     assert(!app.last.valid); /* A calibration phasor must not become a DUT result. */
     baseline=app.profile;
     cal_start(&sim,2u);for(unsigned i=0u;i<900u;++i)step(&sim);
-    lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
     assert(memcmp(&baseline,&app.profile,sizeof(baseline))==0);
     sim.resistance=1e18;
     cal_start(&sim,3u);cal_finish(&sim);
@@ -134,8 +134,8 @@ int main(void) {
         assert(app.profile.slots[f][2].flags==(LCR_CAL_CHANNEL|LCR_CAL_FEEDBACK));
         assert(fabs(app.profile.slots[f][2].rf_ohm-1001.0)<3.0);
     }
-    lcr_app_event(&app,LCR_KEY2_LONG,sim.now);app.page=LCR_PAGE_MENU;app.menu=6u;
-    lcr_app_event(&app,LCR_KEY2_SHORT,sim.now);
+    app.page=LCR_PAGE_MENU;app.menu=6u;
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now);
     assert(sim.saves==1u && !app.unsaved && sim.muted);
     baseline=app.profile;
     cal_start(&sim,2u);
@@ -145,6 +145,6 @@ int main(void) {
     while(app.page==LCR_PAGE_CAL && sim.now<deadline)step(&sim);
     assert(app.page==LCR_PAGE_MESSAGE && strcmp(app.message,"CAL UNSTABLE")==0);
     assert(memcmp(&baseline,&app.profile,sizeof(baseline))==0 && sim.muted);
-    puts("lcr_app: two keys, model hold, frequency search, continuous measure, channel/open/standard wizards and save passed");
+    puts("lcr_app: single key, model hold, frequency search, continuous measure, channel/open/standard wizards and save passed");
     return 0;
 }

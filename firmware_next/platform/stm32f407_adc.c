@@ -2,7 +2,8 @@
 #include "lcr_core.h"
 #include "stm32f4xx.h"
 
-/* RM0090: dual regular simultaneous, DMA access mode 2, TIM2_TRGO. */
+/* RM0090: dual regular simultaneous, DMA access mode 2, TIM2_TRGO.
+ * V1 = PC0 (ADC1_IN10), V2 = PA1 (ADC2_IN1); PA0 is the WK_UP key input. */
 static uint32_t dma_words[1200] __attribute__((section(".dma_buffer"), aligned(4)));
 static uint16_t cpu_pairs[2400];
 static volatile int completed;
@@ -33,10 +34,12 @@ int lcr_board_capture_start(void *context, unsigned frequency, unsigned range, s
     if (frequency >= 4u || count != lcr_frequencies[frequency].sample_pairs || count > 1200u || !token) return 0;
     lcr_board_capture_cancel(0);
     if (DMA2_Stream0->CR & DMA_SxCR_EN) return 0;
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOCEN;
     (void)RCC->AHB1ENR;
-    GPIOA->MODER |= 15u;
-    GPIOA->PUPDR &= ~15u;
+    GPIOA->MODER = (GPIOA->MODER & ~0xcu) | 0xcu; /* PA1 analog: V2. */
+    GPIOA->PUPDR &= ~0xcu;
+    GPIOC->MODER = (GPIOC->MODER & ~0x3u) | 0x3u; /* PC0 analog: V1. */
+    GPIOC->PUPDR &= ~0x3u;
     RCC->APB2RSTR |= RCC_APB2RSTR_ADCRST;
     RCC->APB2RSTR &= ~RCC_APB2RSTR_ADCRST;
     /* ADCPRE=/4 (21MHz), MULTI=00110; DDS=0: finite DMA block. */
@@ -44,7 +47,8 @@ int lcr_board_capture_start(void *context, unsigned frequency, unsigned range, s
     ADC1->CR1 = 0u; ADC2->CR1 = 0u;
     ADC1->SMPR2 = 0u; ADC2->SMPR2 = 0u;
     ADC1->SQR1 = 0u; ADC2->SQR1 = 0u;
-    ADC1->SQR3 = 0u; ADC2->SQR3 = 1u;
+    ADC1->SQR3 = 10u; /* ADC1_IN10 = PC0 = V1. */
+    ADC2->SQR3 = 1u;  /* ADC2_IN1 = PA1 = V2. */
     TIM2->CR1 = 0u; TIM2->CR2 = 0u;
     TIM2->PSC = 0u;
     TIM2->ARR = lcr_frequencies[frequency].timer_divisor - 1u;

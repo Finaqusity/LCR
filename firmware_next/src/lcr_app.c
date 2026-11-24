@@ -58,56 +58,68 @@ static void start_measure(lcr_app *a, uint32_t now) {
     a->next_start = now;
     a->dirty = 1u;
 }
+static void menu_activate(lcr_app *a) {
+    if (a->menu == 0u) a->frequency_mode = (a->frequency_mode + 1u) % 5u;
+    else if (a->menu == 1u) a->range_mode = (a->range_mode + 1u) % 7u;
+    else if (a->menu >= 2u && a->menu <= 4u) a->page = LCR_PAGE_CONFIRM;
+    else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
+    else if (a->menu == 6u) {
+        if (a->session.frontend.state != LCR_FE_MUTED || !a->io.save ||
+            !a->io.save(a->io.context, &a->profile)) message(a, "SAVE FAILED", "RAM CAL RETAINED");
+        else { a->unsaved = 0u; message(a, "CAL SAVED", "CRC VERIFIED"); }
+    } else if (a->menu == 7u) a->page = LCR_PAGE_CONFIRM;
+    else a->page = LCR_PAGE_MEASURE;
+}
+static void confirm_execute(lcr_app *a, uint32_t now) {
+    if (a->menu == 7u) {
+        lcr_cal_profile_nominal(&a->profile, a->profile.board_id, a->profile.fixture_id, a->profile.hse_hz);
+        a->unsaved = 1u; a->last.valid = 0u; message(a, "CAL CLEARED IN RAM", "SAVE TO MAKE PERMANENT");
+        return;
+    }
+    a->working = a->profile;
+    a->calibration = a->menu == 2u ? LCR_CAPTURE_CHANNEL : a->menu == 3u ? LCR_CAPTURE_OPEN : LCR_CAPTURE_STANDARD;
+    a->cal_frequency = 0u;
+    a->cal_range = a->calibration == LCR_CAPTURE_CHANNEL ? 3u :
+                    a->calibration == LCR_CAPTURE_STANDARD ? (a->range_mode ? a->range_mode - 1u : a->active_range) : 0u;
+    if (a->calibration != LCR_CAPTURE_CHANNEL) {
+        for (unsigned f = 0u; f < 4u; ++f)
+            if (!(a->working.slots[f][a->cal_range].flags & LCR_CAL_CHANNEL)) {
+                message(a, "RUN CHANNEL CAL FIRST", "DISCONNECT DUT"); return;
+            }
+    }
+    a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
+    a->last.valid = 0u;
+    a->next_start = now; a->page = LCR_PAGE_CAL;
+}
+/* One physical key (WK_UP) with three gestures:
+ *   MEASURE  short = start/stop, long = settings, double = series/parallel
+ *   MENU     short = next item, long = activate, double = back to measure
+ *   CONFIRM  short = cancel, long = execute
+ *   MESSAGE  short = back to menu, long = back to measure
+ *   CAL      short = cancel calibration, previous calibration retained */
 void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
     if (!a) return;
-    if (events & LCR_KEY2_LONG) {
-        stop(a); a->calibration = 0u;
-        a->page = a->page == LCR_PAGE_MEASURE ? LCR_PAGE_MENU : LCR_PAGE_MEASURE;
-        a->dirty = 1u; return;
-    }
     if (a->page == LCR_PAGE_MEASURE) {
-        if (events & LCR_KEY1_SHORT) a->model = a->model == LCR_MODEL_SERIES ? LCR_MODEL_PARALLEL : LCR_MODEL_SERIES;
-        if (events & LCR_KEY1_LONG) a->details ^= 1u;
-        if (events & LCR_KEY2_SHORT) { if (a->running) stop(a); else start_measure(a, now); }
+        if (events & LCR_KEY_LONG) {
+            stop(a); a->calibration = 0u; a->page = LCR_PAGE_MENU;
+        } else if (events & LCR_KEY_DOUBLE) {
+            a->model = a->model == LCR_MODEL_SERIES ? LCR_MODEL_PARALLEL : LCR_MODEL_SERIES;
+        } else if (events & LCR_KEY_SHORT) {
+            if (a->running) stop(a); else start_measure(a, now);
+        }
     } else if (a->page == LCR_PAGE_MENU) {
-        if (events & LCR_KEY1_SHORT) a->menu = (a->menu + 1u) % 9u;
-        if ((events & LCR_KEY2_SHORT) && !active(a)) {
-            if (a->menu == 0u) a->frequency_mode = (a->frequency_mode + 1u) % 5u;
-            else if (a->menu == 1u) a->range_mode = (a->range_mode + 1u) % 7u;
-            else if (a->menu >= 2u && a->menu <= 4u) a->page = LCR_PAGE_CONFIRM;
-            else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
-            else if (a->menu == 6u) {
-                if (a->session.frontend.state != LCR_FE_MUTED || !a->io.save ||
-                    !a->io.save(a->io.context, &a->profile)) message(a, "SAVE FAILED", "RAM CAL RETAINED");
-                else { a->unsaved = 0u; message(a, "CAL SAVED", "CRC VERIFIED"); }
-            } else if (a->menu == 7u) a->page = LCR_PAGE_CONFIRM;
-            else a->page = LCR_PAGE_MEASURE;
-        }
+        if (events & LCR_KEY_DOUBLE) a->page = LCR_PAGE_MEASURE;
+        else if ((events & LCR_KEY_LONG) && !active(a)) menu_activate(a);
+        else if (events & LCR_KEY_SHORT) a->menu = (a->menu + 1u) % 9u;
     } else if (a->page == LCR_PAGE_CONFIRM) {
-        if (events & LCR_KEY1_SHORT) a->page = LCR_PAGE_MENU;
-        if ((events & LCR_KEY2_SHORT) && !active(a)) {
-            if (a->menu == 7u) {
-                lcr_cal_profile_nominal(&a->profile, a->profile.board_id, a->profile.fixture_id, a->profile.hse_hz);
-                a->unsaved = 1u; a->last.valid = 0u; message(a, "CAL CLEARED IN RAM", "SAVE TO MAKE PERMANENT");
-            } else {
-                a->working = a->profile;
-                a->calibration = a->menu == 2u ? LCR_CAPTURE_CHANNEL : a->menu == 3u ? LCR_CAPTURE_OPEN : LCR_CAPTURE_STANDARD;
-                a->cal_frequency = 0u;
-                a->cal_range = a->calibration == LCR_CAPTURE_CHANNEL ? 3u :
-                                a->calibration == LCR_CAPTURE_STANDARD ? (a->range_mode ? a->range_mode - 1u : a->active_range) : 0u;
-                if (a->calibration != LCR_CAPTURE_CHANNEL) {
-                    for (unsigned f = 0u; f < 4u; ++f)
-                        if (!(a->working.slots[f][a->cal_range].flags & LCR_CAL_CHANNEL)) {
-                            message(a, "RUN CHANNEL CAL FIRST", "DISCONNECT DUT"); return;
-                        }
-                }
-                a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
-                a->last.valid = 0u;
-                a->next_start = now; a->page = LCR_PAGE_CAL;
-            }
-        }
-    } else if (a->page == LCR_PAGE_MESSAGE && (events & (LCR_KEY1_SHORT | LCR_KEY2_SHORT))) a->page = LCR_PAGE_MENU;
-    else if (a->page == LCR_PAGE_CAL && (events & LCR_KEY2_SHORT)) message(a, "CAL CANCELLED", "PREVIOUS CAL RETAINED");
+        if ((events & LCR_KEY_LONG) && !active(a)) confirm_execute(a, now);
+        else if (events & LCR_KEY_SHORT) a->page = LCR_PAGE_MENU;
+    } else if (a->page == LCR_PAGE_MESSAGE) {
+        if (events & LCR_KEY_LONG) a->page = LCR_PAGE_MEASURE;
+        else if (events & LCR_KEY_SHORT) a->page = LCR_PAGE_MENU;
+    } else if (a->page == LCR_PAGE_CAL && (events & LCR_KEY_SHORT)) {
+        message(a, "CAL CANCELLED", "PREVIOUS CAL RETAINED");
+    }
     if (events) a->dirty = 1u;
 }
 
@@ -232,21 +244,21 @@ static void render(lcr_app *a) {
             else (void)snprintf(setting,sizeof(setting),"RF %lu OHM",(unsigned long)lcr_nominal_rf[a->range_mode-1u]);
         } else (void)snprintf(setting,sizeof(setting),"%s",a->unsaved?"UNSAVED CAL":"");
         lcr_ui_message(&a->canvas,"SETTINGS",menu_names[a->menu],setting);
-        lcr_canvas_text(&a->canvas,0u,53u,"PB1:NEXT PB2:OK",1u);
+        lcr_canvas_text(&a->canvas,0u,53u,"KEY:NEXT HOLD:OK",1u);
     } else if (a->page == LCR_PAGE_CONFIRM) {
         char instruction[32];
         if (a->menu == 4u) (void)snprintf(instruction,sizeof(instruction),"CONNECT %lu OHM STD",
             (unsigned long)lcr_nominal_rf[a->range_mode?a->range_mode-1u:a->active_range]);
         else (void)snprintf(instruction,sizeof(instruction),"%s",a->menu==7u?"CLEAR ALL RAM CAL?":"DISCONNECT DUT");
         lcr_ui_message(&a->canvas,"CONFIRM",instruction,a->menu==3u?"OPEN ONLY / ZS=0":"");
-        lcr_canvas_text(&a->canvas,0u,53u,"PB1:CANCEL PB2:START",1u);
+        lcr_canvas_text(&a->canvas,0u,53u,"KEY:CANCEL HOLD:GO",1u);
     } else if (a->page == LCR_PAGE_CAL) {
         char progress[32];
         (void)snprintf(progress,sizeof(progress),"F%u R%u SAMPLE %u/3",a->cal_frequency+1u,a->cal_range+1u,a->cal_samples+1u);
-        lcr_ui_message(&a->canvas,"CALIBRATING",progress,"PB2:CANCEL");
+        lcr_ui_message(&a->canvas,"CALIBRATING",progress,"KEY:CANCEL");
     } else {
         lcr_ui_message(&a->canvas,"LCR STATUS",a->message,a->message2);
-        lcr_canvas_text(&a->canvas,0u,53u,"PB1/PB2:BACK",1u);
+        lcr_canvas_text(&a->canvas,0u,53u,"KEY:BACK",1u);
     }
 }
 void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {

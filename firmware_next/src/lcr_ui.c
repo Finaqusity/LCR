@@ -1,37 +1,54 @@
 #include "lcr_ui.h"
+#include "lcr_config.h"
 #include "lcr_font_data.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+/* Single key state machine: debounce, long press and double-click. A short
+ * press is only reported after the double-click window expires, so the three
+ * gestures cannot be confused with each other. */
 void lcr_keys_init(lcr_keys *keys, unsigned raw, uint32_t now) {
     memset(keys, 0, sizeof(*keys));
-    for (unsigned i = 0u; i < 2u; ++i) {
-        keys->keys[i].candidate = keys->keys[i].stable = (uint8_t)((raw >> i) & 1u);
-        keys->keys[i].blocked = keys->keys[i].stable;
-        keys->keys[i].changed = now;
-    }
+    keys->key.candidate = keys->key.stable = (uint8_t)(raw & 1u);
+    keys->key.blocked = keys->key.stable; /* Held at boot never starts a command. */
+    keys->key.changed = now;
 }
 
 unsigned lcr_keys_poll(lcr_keys *keys, unsigned raw, uint32_t now) {
     unsigned events = 0u;
-    if ((raw & 3u) == 3u) keys->keys[0].blocked = keys->keys[1].blocked = 1u;
-    for (unsigned i = 0u; i < 2u; ++i) {
-        lcr_key *key = &keys->keys[i];
-        const uint8_t down = (uint8_t)((raw >> i) & 1u);
-        if (down != key->candidate) { key->candidate = down; key->changed = now; }
-        if (key->candidate != key->stable && now - key->changed >= 25u) {
-            key->stable = key->candidate;
-            if (key->stable) { key->pressed = now; key->long_sent = 0u; }
-            else {
-                if (!key->blocked && !key->long_sent) events |= 1u << i;
-                key->blocked = 0u;
+    lcr_key *key = &keys->key;
+    const uint8_t down = (uint8_t)(raw & 1u);
+    if (down != key->candidate) { key->candidate = down; key->changed = now; }
+    if (key->candidate != key->stable && now - key->changed >= LCR_KEY_DEBOUNCE_MS) {
+        key->stable = key->candidate;
+        if (key->stable) { /* press edge */
+            key->pressed = now;
+            key->long_sent = 0u;
+            if (key->click_pending && now - key->released_at <= LCR_KEY_DOUBLE_MS) {
+                key->click_pending = 0u;
+                key->double_pending = 1u;
             }
+        } else { /* release edge */
+            key->released_at = now;
+            if (key->double_pending) {
+                key->double_pending = 0u;
+                if (!key->blocked && !key->long_sent) events |= LCR_KEY_DOUBLE;
+            } else if (!key->blocked && !key->long_sent) {
+                key->click_pending = 1u;
+            }
+            key->blocked = 0u;
         }
-        if (key->stable && !key->blocked && !key->long_sent && now - key->pressed >= 800u) {
-            key->long_sent = 1u;
-            events |= 4u << i;
-        }
+    }
+    if (key->stable && !key->blocked && !key->long_sent && now - key->pressed >= LCR_KEY_LONG_MS) {
+        key->long_sent = 1u;
+        key->click_pending = 0u;
+        key->double_pending = 0u;
+        events |= LCR_KEY_LONG;
+    }
+    if (key->click_pending && !key->stable && now - key->released_at >= LCR_KEY_DOUBLE_MS) {
+        key->click_pending = 0u;
+        events |= LCR_KEY_SHORT;
     }
     return events;
 }
@@ -146,5 +163,5 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
                 m->parameters.negative_resistance?" NEG-R":"");
         }
         lcr_canvas_text(c, 0u, 50u, text, 1u);
-    } else lcr_canvas_text(c, 0u, 47u, "PB2:START HOLD:MENU", 1u);
+    } else lcr_canvas_text(c, 0u, 47u, "KEY:START HOLD:MENU", 1u);
 }

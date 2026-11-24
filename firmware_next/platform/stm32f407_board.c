@@ -1,4 +1,5 @@
 #include "lcr_board.h"
+#include "lcr_config.h"
 #include "lcr_core.h"
 #include "stm32f4xx.h"
 
@@ -21,6 +22,26 @@ static void alternate(GPIO_TypeDef *gpio, unsigned pin, uint32_t function) {
     mode(gpio, pin, 2u);
 }
 
+/* Single on-board key (WK_UP on this board): GPIO input with internal
+ * pull-down for an active-high key, or pull-up for an active-low key. */
+static GPIO_TypeDef *key_gpio(void) {
+    switch (LCR_KEY_PORT) {
+    case 0u: return GPIOA;
+    case 1u: return GPIOB;
+    case 2u: return GPIOC;
+    default: return GPIOD;
+    }
+}
+
+static void key_init(void) {
+    GPIO_TypeDef *gpio = key_gpio();
+    const unsigned shift = 2u * LCR_KEY_PIN;
+    gpio->MODER &= ~(3u << shift);
+    gpio->OTYPER &= ~(1u << LCR_KEY_PIN);
+    gpio->PUPDR = (gpio->PUPDR & ~(3u << shift)) |
+                  ((LCR_KEY_ACTIVE_HIGH ? 2u : 1u) << shift);
+}
+
 static void early_gpio(void) {
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN |
                     RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIODEN;
@@ -37,9 +58,7 @@ static void early_gpio(void) {
     mode(GPIOA, 4u, 1u); /* FSYNC high. */
     mode(GPIOA, 5u, 1u); /* SCLK high BEFORE the first FSYNC falling edge. */
     mode(GPIOA, 7u, 1u);
-    mode(GPIOB, 0u, 0u);
-    mode(GPIOB, 1u, 0u);
-    GPIOB->PUPDR = (GPIOB->PUPDR & ~15u) | 5u;
+    key_init(); /* WK_UP key first; PA0 must stay an input, V1 sampled on PC0. */
     __DSB();
 }
 
@@ -232,6 +251,7 @@ void lcr_board_led(int on) {
 }
 
 unsigned lcr_board_buttons(void) {
-    const uint32_t pressed = ~GPIOB->IDR;
-    return ((pressed >> 1) & 1u) | ((pressed & 1u) << 1);
+    const uint32_t level = (key_gpio()->IDR >> LCR_KEY_PIN) & 1u;
+    if (LCR_KEY_ACTIVE_HIGH) return level ? 1u : 0u;
+    return level ? 0u : 1u;
 }

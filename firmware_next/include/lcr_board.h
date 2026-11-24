@@ -11,7 +11,7 @@ uint32_t lcr_board_millis(void);
 int lcr_board_puts(const char *text);
 int lcr_board_getchar(void); /* -1: empty; -2: UART receive error. Poll frequently. */
 void lcr_board_led(int on);
-unsigned lcr_board_buttons(void); /* Raw active bits: 1=PB1 label, 2=PB2 label. */
+unsigned lcr_board_buttons(void); /* Single key bit 0: 1 = WK_UP/PA0 pressed (active high). */
 int lcr_board_dds_frequency(uint32_t hz); /* Accepted only while already muted. */
 lcr_frontend_io lcr_board_frontend_io(void);
 int lcr_board_capture_start(void *context, unsigned frequency, unsigned range, size_t count, uint32_t token);

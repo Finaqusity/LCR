@@ -33,12 +33,11 @@ int main(void) {
             const int ch=lcr_board_getchar();
             if (ch==-1)break;
             if (ch==-2) { (void)lcr_board_puts("RX ERROR\r\n");break; }
-            if (ch=='1')lcr_app_event(&app,LCR_KEY1_SHORT,now);
-            else if(ch=='2')lcr_app_event(&app,LCR_KEY2_SHORT,now);
-            else if(ch=='b')lcr_app_event(&app,LCR_KEY2_LONG,now);
-            else if(ch=='d')lcr_app_event(&app,LCR_KEY1_LONG,now);
+            if (ch=='1'||ch=='2')lcr_app_event(&app,LCR_KEY_SHORT,now);
+            else if(ch=='b')lcr_app_event(&app,LCR_KEY_LONG,now);
+            else if(ch=='d')lcr_app_event(&app,LCR_KEY_DOUBLE,now);
             else if(ch=='s') { lcr_app_halt(&app);(void)lcr_board_puts("STOP\r\n"); }
-            else if(ch=='?') (void)lcr_board_puts("1:model/next 2:start/stop/ok b:menu/back d:detail s:stop\r\n");
+            else if(ch=='?') (void)lcr_board_puts("1/2:short b:long d:double s:stop\r\n");
         }
         lcr_app_poll(&app,lcr_board_buttons(),now);
         const uint16_t *pairs=0;size_t count=0u;uint32_t token=0u;

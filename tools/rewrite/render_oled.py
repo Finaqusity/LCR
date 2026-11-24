@@ -6,7 +6,7 @@ root=Path(__file__).resolve().parents[2]
 source=root/'firmware_next/build-host'
 screens=[('oled_series','SERIES / RUN'),('oled_parallel','PARALLEL / HOLD'),
          ('oled_calibration','CALIBRATION CONFIRM'),('oled_error','ACQUISITION ERROR'),
-         ('oled_wire_180','WIRE DATA (ROTATED 180 DEG)')]
+         ('oled_wire_forward','WIRE DATA (FORWARD)')]
 image=Image.new('RGB',(1100,1020),'#121821')
 draw=ImageDraw.Draw(image)
 font=ImageFont.truetype('C:/Windows/Fonts/consola.ttf',18)
