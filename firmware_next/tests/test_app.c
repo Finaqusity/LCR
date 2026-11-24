@@ -1,4 +1,4 @@
-#include "lcr_app.h"
+﻿#include "lcr_app.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -112,6 +112,30 @@ int main(void) {
     lcr_app_event(&app,LCR_KEY_LONG,sim.now);app.menu=5u;
     lcr_app_event(&app,LCR_KEY_LONG,sim.now);
     assert(app.page==LCR_PAGE_MESSAGE && sim.starts==stopped_starts);
+    /* A status message must retry the measurement, not jump into settings. */
+    app.last.valid=0u;
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+    assert(app.page==LCR_PAGE_MEASURE && app.running);
+    {const uint32_t retry_deadline=sim.now+30000u;while(!app.last.valid&&sim.now<retry_deadline)step(&sim);}
+    assert(app.last.valid && sim.starts>stopped_starts);
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now); /* Stop and return to the settings menu. */
+    assert(app.page==LCR_PAGE_MENU && !app.running);
+    /* A runtime session failure must not poison the next attempt: stop()
+       consumes the terminal state so a short press can retry from the
+       message page. */
+    sim.gain=0.0;sim.phase=0.0;
+    app.page=LCR_PAGE_MEASURE;
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+    {const uint32_t fail_deadline=sim.now+30000u;while(app.page!=LCR_PAGE_MESSAGE&&sim.now<fail_deadline)step(&sim);}
+    assert(app.page==LCR_PAGE_MESSAGE&&!app.running&&app.session.state==LCR_SESSION_IDLE);
+    sim.gain=1.0;
+    app.last.valid=0u;
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+    assert(app.page==LCR_PAGE_MEASURE&&app.running&&app.session.state!=LCR_SESSION_FAILED);
+    {const uint32_t retry_deadline=sim.now+30000u;while(!app.last.valid&&sim.now<retry_deadline)step(&sim);}
+    assert(app.last.valid&&app.running);
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now); /* stop */
+    assert(!app.running&&sim.muted);
     sim.gain=1.02;sim.phase=0.03;
     cal_start(&sim,2u);cal_finish(&sim);
     for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r) {

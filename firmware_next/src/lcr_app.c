@@ -1,4 +1,4 @@
-#include "lcr_app.h"
+﻿#include "lcr_app.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +31,12 @@ static void stop(lcr_app *a) {
     a->running = 0u; a->scan = 0u;
     lcr_session_stop(&a->session);
     a->session.keep_excitation = 0u;
+    /* A terminal state must not block the next start: the page above the
+       session (message / idle) owns the user-visible state from here on. */
+    if (a->session.state == LCR_SESSION_FAILED ||
+        a->session.state == LCR_SESSION_CANCELLED ||
+        a->session.state == LCR_SESSION_DONE)
+        a->session.state = LCR_SESSION_IDLE;
 }
 static void message(lcr_app *a, const char *line1, const char *line2) {
     stop(a); a->calibration = 0u;
@@ -95,7 +101,7 @@ static void confirm_execute(lcr_app *a, uint32_t now) {
  *   MEASURE  short = start/stop, long = settings, double = series/parallel
  *   MENU     short = next item, long = activate, double = back to measure
  *   CONFIRM  short = cancel, long = execute
- *   MESSAGE  short = back to menu, long = back to measure
+ *   MESSAGE  short = retry measurement, long = back to menu
  *   CAL      short = cancel calibration, previous calibration retained */
 void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
     if (!a) return;
@@ -115,8 +121,8 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
         if ((events & LCR_KEY_LONG) && !active(a)) confirm_execute(a, now);
         else if (events & LCR_KEY_SHORT) a->page = LCR_PAGE_MENU;
     } else if (a->page == LCR_PAGE_MESSAGE) {
-        if (events & LCR_KEY_LONG) a->page = LCR_PAGE_MEASURE;
-        else if (events & LCR_KEY_SHORT) a->page = LCR_PAGE_MENU;
+        if (events & LCR_KEY_LONG) a->page = LCR_PAGE_MENU;
+        else if (events & LCR_KEY_SHORT) start_measure(a, now);
     } else if (a->page == LCR_PAGE_CAL && (events & LCR_KEY_SHORT)) {
         message(a, "CAL CANCELLED", "PREVIOUS CAL RETAINED");
     }
