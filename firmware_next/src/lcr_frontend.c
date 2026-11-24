@@ -1,4 +1,4 @@
-#include "lcr_frontend.h"
+﻿#include "lcr_frontend.h"
 #include "lcr_core.h"
 
 static int mute(lcr_frontend *fe, int value) {
@@ -21,8 +21,9 @@ int lcr_frontend_begin(lcr_frontend *fe, unsigned range, int calibration, uint32
     fe->range = (uint8_t)range;
     fe->calibration = (uint8_t)calibration;
     fe->cancel = 0u;
-    /* Explicit break: drop every NO range, energize the default NC coil. */
-    fe->io.relays(fe->io.context, (uint8_t)(0x08u | (calibration ? 0x40u : 0u)));
+    /* Explicit break: drop every range relay (there is no NC default range on
+       the current wiring); K78 stays inactive unless calibrating. */
+    fe->io.relays(fe->io.context, (uint8_t)(calibration ? 0x40u : 0u));
     fe->since = now;
     fe->state = LCR_FE_BREAK;
     return 1;

@@ -1,4 +1,4 @@
-#include "lcr_core.h"
+﻿#include "lcr_core.h"
 
 #include <float.h>
 #include <math.h>
@@ -8,7 +8,11 @@ const lcr_frequency lcr_frequencies[4] = {
     {100u, 52500u, 128u}, {1000u, 5250u, 256u},
     {10000u, 525u, 512u}, {100000u, 70u, 1200u}
 };
-const uint8_t lcr_range_masks[6] = {0x09u, 0x0au, 0x0cu, 0u, 0x18u, 0x28u};
+/* Range relay masks, indexed 10R, 100R, 1K, 10K, 100K, 1M.
+ * Bit n = PDn, high = relay energized (break-before-make; K78 cal = PD6).
+ * 10R drives PD0 and PD7 together: those two coils are wired directly and
+ * must switch in the same write. */
+const uint8_t lcr_range_masks[6] = {0x81u, 0x02u, 0x20u, 0x04u, 0x08u, 0x10u};
 
 static int finite_complex(lcr_complex z) {
     return isfinite(z.re) && isfinite(z.im);

@@ -1,4 +1,4 @@
-#include "lcr_frontend.h"
+﻿#include "lcr_frontend.h"
 #include "lcr_core.h"
 
 #include <assert.h>
@@ -36,6 +36,11 @@ static void finish(lcr_frontend *fe, uint32_t now) {
 }
 
 int main(void) {
+    /* Relay wiring snapshot: PD0+PD7 = 10R, PD1 = 100R, PD5 = 1K,
+       PD2 = 10K, PD3 = 100K, PD4 = 1M; PD6 = K78 calibration path. */
+    static const uint8_t expected_masks[6] = {0x81u, 0x02u, 0x20u, 0x04u, 0x08u, 0x10u};
+    for (unsigned r = 0u; r < 6u; ++r) assert(lcr_range_masks[r] == expected_masks[r]);
+    assert(lcr_range_masks[0] == (uint8_t)(0x01u | 0x80u)); /* both 10R coils */
     /* Actual production sequencer, all 36 transitions in both K1 positions. */
     for (unsigned from = 0u; from < 6u; ++from) {
         for (unsigned to = 0u; to < 6u; ++to) {
@@ -47,7 +52,7 @@ int main(void) {
                 assert(lcr_frontend_begin(&fe, from, !cal, 0u));
                 finish(&fe, 0u);
                 assert(lcr_frontend_begin(&fe, to, cal, 1000u));
-                assert(io.muted && io.mask == (uint8_t)(0x08u | (cal ? 0x40u : 0u)));
+                assert(io.muted && io.mask == (uint8_t)(cal ? 0x40u : 0u));
                 assert(!lcr_frontend_begin(&fe, 3u, 0, 1000u));
                 lcr_frontend_poll(&fe, 1009u);
                 assert(fe.state == LCR_FE_BREAK);

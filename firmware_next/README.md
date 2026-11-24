@@ -1,8 +1,8 @@
-# 新固件独立工程
+﻿# 新固件独立工程
 
 当前源码已接通复位启动、板级初始化、双 ADC/TIM/DMA、测量与校准调度、单键/OLED 和 Flash 双副本保存。没有读取或修改旧应用代码。
 
-本机已在 Windows + `arm-none-eabi-gcc 14.2`（`D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 覆盖）下实际构建出 `build-target/lcr-next.elf/.hex/.bin/.map`；电脑端 9 个 C 测试程序已运行通过，23 个源文件通过 Cortex-M4 / hard-float / `-Wall -Wextra -Werror` 编译。**这些证据不等同于 MCU 执行或整机精度验收；尚未上板运行。**
+本机已在 Windows + `arm-none-eabi-gcc 14.2`（`D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 覆盖）下实际构建出 `build-target/lcr-next.elf/.hex/.bin/.map`；电脑端 9 个 C 测试程序已运行通过，23 个源文件通过 Cortex-M4 / hard-float / `-Wall -Wextra -Werror` 编译。**已在 ST-Link 上板验证启动、单键路径与量程继电器写入；模拟前端与精度验收仍未做。**
 
 操作、构建、测试和剩余验收见 [整机固件操作与验收](../docs/rewrite/整机固件操作与验收.md)。硬件依据见 [硬件核对与实施记录](../docs/rewrite/硬件核对与实施记录.md)。
 

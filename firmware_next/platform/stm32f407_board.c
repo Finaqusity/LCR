@@ -1,4 +1,4 @@
-#include "lcr_board.h"
+﻿#include "lcr_board.h"
 #include "lcr_config.h"
 #include "lcr_core.h"
 #include "stm32f4xx.h"
@@ -46,12 +46,13 @@ static void early_gpio(void) {
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN |
                     RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIODEN;
     (void)RCC->AHB1ENR;
-    /* Load output latches BEFORE changing direction: NC 10k feedback, CAL off. */
-    GPIOD->BSRR = 0x7fu << 16;
-    GPIOD->OTYPER &= ~0x7fu;
-    GPIOD->PUPDR &= ~0x3fffu;
-    GPIOD->OSPEEDR &= ~0x3fffu;
-    GPIOD->MODER = (GPIOD->MODER & ~0x3fffu) | 0x1555u;
+    /* Load output latches BEFORE changing direction: every range relay (PD0-PD7)
+       off, high level = energized. */
+    GPIOD->BSRR = 0xffu << 16;
+    GPIOD->OTYPER &= ~0xffu;
+    GPIOD->PUPDR &= ~0xffffu;
+    GPIOD->OSPEEDR &= ~0xffffu;
+    GPIOD->MODER = (GPIOD->MODER & ~0xffffu) | 0x5555u;
     GPIOC->BSRR = 1u << 13; /* LED off. */
     mode(GPIOC, 13u, 1u);
     GPIOA->BSRR = (1u << 4) | (1u << 5) | (1u << (7u + 16u));
@@ -222,8 +223,8 @@ static int mute_callback(void *context, int muted) {
 
 static void relay_callback(void *context, uint8_t mask) {
     (void)context;
-    const uint32_t outputs = mask & 0x7fu;
-    GPIOD->BSRR = outputs | ((0x7fu & ~outputs) << 16);
+    const uint32_t outputs = mask & 0xffu;
+    GPIOD->BSRR = outputs | ((0xffu & ~outputs) << 16);
     __DSB();
 }
 
