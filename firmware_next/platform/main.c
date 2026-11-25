@@ -97,6 +97,12 @@ int main(void) {
         for (;;) { lcr_board_led(1);__WFI(); }
     int display_ok=lcr_board_display_init();
     uint32_t displayed=0u,recovery=0u;
+#if LCR_AUTO_START
+    /* Bench/demo convenience: the on-board key is on the back of the board, so
+     * start continuous measurement right after boot; short press still stops. */
+    lcr_app_event(&app,LCR_KEY_SHORT,lcr_board_millis());
+    uint32_t auto_retry=lcr_board_millis();
+#endif
     for (;;) {
         uint32_t now=lcr_board_millis();
         for (unsigned budget=0u;budget<8u;++budget) {
@@ -110,6 +116,16 @@ int main(void) {
             else if(ch=='?') (void)lcr_board_puts("1/2:short b:long d:double s:stop\r\n");
         }
         lcr_app_poll(&app,lcr_board_buttons(),now);
+#if LCR_AUTO_START
+        /* Keep retrying a failed measurement every 2 s, so connecting the DUT
+         * brings a reading back without touching the key. */
+        if(app.running || app.page!=LCR_PAGE_MESSAGE) auto_retry=now;
+        else if(app.session.error!=LCR_SESSION_NO_ERROR && now-auto_retry>=2000u) {
+            auto_retry=now;
+            lcr_app_event(&app,LCR_KEY_SHORT,now);
+            lcr_app_poll(&app,lcr_board_buttons(),lcr_board_millis());
+        }
+#endif
         const uint16_t *pairs=0;size_t count=0u;uint32_t token=0u;
         const int capture=lcr_board_capture_take(&pairs,&count,&token);
         if(capture>0)lcr_app_submit(&app,token,pairs,count,lcr_board_millis());

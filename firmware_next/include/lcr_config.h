@@ -39,6 +39,14 @@
  * "no excitation" instead of showing a result. */
 #define LCR_EXCITATION_MIN_PEAK_CODES 25.0
 
+/* Auto-start. 1 = begin a continuous measurement as soon as the firmware
+ * boots, so a demo/bench setup shows a reading without touching the key
+ * (the key is on the back of this core board). Stop with a short press.
+ * Set to 0 to boot into the idle screen. */
+#ifndef LCR_AUTO_START
+#define LCR_AUTO_START 1u
+#endif
+
 #define LCR_FIXTURE_ID 1u
 #define LCR_DEFAULT_HSE_HZ 8000000.0
 

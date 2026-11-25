@@ -44,6 +44,14 @@
   判为“无激励”，进入 `LCR STATUS` 提示页（`NO EXCITATION` / `CHECK TP1 / DRIVE`），**不显示测量数值**。
 - 阈值在 `include/lcr_config.h`；改变激励电平或前端增益后需重新评估该阈值。
 
+## 上电自动测量（按键在背面）
+
+- `LCR_AUTO_START`（默认 1，`include/lcr_config.h`）：固件初始化完成后立即启动一次连续测量，
+  不需要按键；测量失败进入提示页后**每 2 s 自动重试**，接上 DUT 即自动恢复出数。
+- 短按仍可手动停止/重测，长按进菜单；把 `LCR_AUTO_START` 置 0 可恢复“上电停在 IDLE”的行为。
+- 实测（ST-Link，夹具开路）：0.08 s `page=MEASURE, running=1` → 2.5 s 失败进 `MESSAGE` →
+  4.5 s 再次 `MEASURE, running=1` 循环，自动启动与重试均生效。
+
 ## 模块
 
 | 模块 | 作用 |
