@@ -2,7 +2,7 @@
 
 当前源码已接通复位启动、板级初始化、双 ADC/TIM/DMA、测量与校准调度、单键/OLED 和 Flash 双副本保存。没有读取或修改旧应用代码。
 
-本机已在 Windows + `arm-none-eabi-gcc 14.2`（`D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 覆盖）下实际构建出 `build-target/lcr-next.elf/.hex/.bin/.map`；电脑端 9 个 C 测试程序已运行通过，23 个源文件通过 Cortex-M4 / hard-float / `-Wall -Wextra -Werror` 编译。**已在 ST-Link 上板验证启动、单键路径与量程继电器写入；模拟前端与精度验收仍未做。**
+本机已在 Windows + `arm-none-eabi-gcc 14.2`（`D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 覆盖）下实际构建出 `build-target/lcr-next.elf/.hex/.bin/.map`；电脑端 9 个 C 测试程序已运行通过，23 个源文件通过 Cortex-M4 / hard-float / `-Wall -Wextra -Werror` 编译。**已在 ST-Link 上板验证启动、单键路径、量程继电器写入与内部 DAC 激励（AD9833 已失效移除）；模拟前端与精度验收仍未做。**
 
 操作、构建、测试和剩余验收见 [整机固件操作与验收](../docs/rewrite/整机固件操作与验收.md)。硬件依据见 [硬件核对与实施记录](../docs/rewrite/硬件核对与实施记录.md)。
 
@@ -23,6 +23,14 @@
 
 短按要等双击窗口结束才上报，因此单击有约 0.3 s 判定延迟；长按结束后不再产生短按；上电已按住的键不产生动作。串并联切换使用同一份 Z，不重新采样或切换继电器。停止后显示 HOLD。配置集中在 `include/lcr_config.h`；实际 C 帧缓冲预览见 [界面预览](../docs/rewrite/oled_preview.png)。
 
+## 激励源：内部 DAC（AD9833 已失效移除）
+
+- 原 AD9833 的 MCLK 通路实测未到芯片、VOUT 恒 0 V（CAP=2.49 V 正常），芯片已从板上移除；**PA4 改接到原 AD9833 VOUT 节点（C1 靠芯片侧）**，由 STM32 内部 DAC1 产生激励。
+- 激励实现：56 点正弦表（2048±372，约 0.6 Vpp）经 **TIM6 更新事件 + DMA1 Stream5 通道 7 循环** 送到 DAC1；更新率 = 56×f0，TIM6 分频 = 84 MHz/(56·f0) = 1500000/f0，因此 100 Hz / 1 kHz / 10 kHz 三档频率与 ADC 采样时钟（fs = 16·f0）**精确相干**。
+- 静音时 TIM6 停止、DAC 输出中值 1.65 V（经 C1 隔直后对 AFE 无影响）；开始测量时启动，测量结束恢复静音。静音期间修改频率只更新 TIM6 ARR，下一次 begin 才启动波形。
+- **100 kHz 需要 5.6 MSPS 更新率，超出 DAC 可用范围**：寄存器仍按 100 kHz 配置，但输出会明显衰减/失真，当前版本只承诺 100 Hz / 1 kHz / 10 kHz。
+- 顶层仍调用 `lcr_board_dds_frequency()` / `lcr_board_dds_mute()`，测量、校准与拟合逻辑完全未改。
+
 ## 模块
 
 | 模块 | 作用 |
@@ -35,7 +43,7 @@
 | `lcr_ui` | 单键消抖/长按/双击、显示格式、帧缓冲与 180°可选映射 |
 | `lcr_cal_store` | 24 槽校准记录、显式编码、版本/身份/CRC 检查 |
 | `lcr_journal` | 双副本、非活动副本写入、读回、最后提交和恢复 |
-| `platform/` | 独立启动、主循环、时钟/串口/DDS、ADC/DMA、I²C/OLED、Flash |
+| `platform/` | 独立启动、主循环、时钟/串口/DAC 激励、ADC/DMA、I²C/OLED、Flash |
 
 普通测量默认在最小等待后比较两路直流、幅度和复数阻抗，连续两次稳定比较通过才发布；超过 1200 ms 仍不稳定则拒绝。原有 800 ms 固定等待可通过配置恢复，校准仍使用该保守等待。稳定度不证明模拟电路线性，首次多频搜索和换档过程也不保证 ≤1 s。
 
@@ -57,16 +65,16 @@ powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1
 
 ## TP1 波形自检（模拟前端 bring-up）
 
-用于在示波器上确认激励链（AD9833 → 运放 → BUF634A → TP1）是否工作。该镜像不启动测量、不吸合任何量程继电器，只保持 1 kHz 连续正弦：
+用于在示波器上确认激励链（DAC1/PA4 → C1 → OPA2810 → BUF634A → TP1）是否工作。该镜像不启动测量、不吸合任何量程继电器，只保持 1 kHz 连续正弦，同时每 250 ms 采一帧把 V1/V2 幅度/直流/残差写到 `lcr_wave_diag_data`（SWD 可读）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1 -WaveTest
 python -m pyocd flash -t stm32f407vgtx --erase sector firmware_next/build-target/lcr-wave.hex
 ```
 
-预期：TP1 上 1 kHz 正弦、约 0.5 Vrms（幅度由 VR1 决定），直流偏置 3.3 V，示波器用 AC 耦合观察；PC13 LED 1 Hz 闪烁；UART 打印 `LCR WAVE TEST: TP1 1 kHz, relays released`。所有量程继电器保持释放，DUT 基本空载，因此 TP1 反映的是激励链本身的输出；若此镜像下 TP1 无波形，应先查 PA8/MCO1 8 MHz MCLK、AD9833 供电与 SPI1 写入，而不是测量算法。
+预期：TP1 上 1 kHz 正弦、约 0.5 Vrms（幅度由 VR1 决定），直流偏置 3.3 V，示波器用 AC 耦合、200 µs/div、10× 探头与通道档位一致。PC13 LED 1 Hz 闪烁；UART 打印 `LCR WAVE TEST: TP1 1 kHz, relays released; ADC diag on`。若 TP1 无波形，先确认 PA4 确已接到 C1 靠芯片侧、AFE 的 +9 V/3.3 VA/VDDA/VREF_AFE 正常，再查 OPA2810/BUF634A 工作点。ADC 侧 V1/V2 必须按 `V1→PC0、V2→PA1、GND 共地` 接线后，`lcr_wave_diag_data` 才会给出有效读数（否则只看到偏置与噪声，status=4/LCR_WEAK_SIGNAL）。
 
-检查完模拟前端后，重新构建普通镜像（不带 `-WaveTest`）并烧回 `lcr-next.hex`。该镜像已在 ST-Link 上验证：`SystemCoreClock=168 MHz`、`SPI1 SPE=1`、`dds_muted=0`（AD9833 RESET 已释放）、`GPIOD ODR=0`（继电器全释放）、无 HardFault。
+检查完模拟前端后，重新构建普通镜像（不带 `-WaveTest`）并烧回 `lcr-next.hex`。该镜像已在 ST-Link 上验证：`SystemCoreClock=168 MHz`、静音时 `TIM6 ARR=1499/CEN=0`、`DAC CR=0x1005/DOR=2048`（中值）、`dds_muted=1`；测量期间 `TIM6 CEN=1`、DMA1 Stream5 `EN=1` 且 `NDTR` 循环、DAC `DOR` 在正弦表范围内变化、`dds_muted=0`；无 HardFault。
 
 ## 验证与限制
 
@@ -75,7 +83,8 @@ python -m pyocd flash -t stm32f407vgtx --erase sector firmware_next/build-target
 - 覆盖原有 32 组 R/L/C 帧、32 组自动量程案例，以及整机单键、R/L/C 自动选频、三类校准、稳定判断和保存流程。
 - 校准记录覆盖 1772 个字节位置的损坏与截断；双副本覆盖 445 个中断写入边界、损坏回退、序号回绕和读取失败。
 - OLED 正向与 180°映射（8192 像素）均通过检查，界面预览取自 C 帧缓冲。
-- ADC/I²C/Flash/启动代码只有编译证据，未在真实寄存器或 MCU 上执行。完整链接、代码尺寸和最终内存预算仍需验证。
+- 板级启动、时钟、单键、量程继电器、ADC/DMA 采集与 DAC 激励已在 ST-Link + 实物开发板上执行；I²C/OLED、Flash 保存与测量精度仍缺实物证据。完整链接、代码尺寸和最终内存预算已可复现，但尚未做长期稳定性测试。
+- 激励 100 kHz 仅做了寄存器配置，DAC 更新率不足（5.6 MSPS），当前不作为可用档位。
 - 物理短路校准保持禁用；开路补偿默认假定 Zs=0，不能称开路+短路校准已完成。
 - 标准件校准用屏幕指定的标称电阻值；其误差、反馈模型适用性、噪声及模拟工作点需要实测。
 - Flash 测试使用 NOR 模型，不能代替真实掉电、供电电压和寿命测试。保存只允许在停采集、激励软件状态静音后执行。

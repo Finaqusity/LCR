@@ -9,9 +9,58 @@ static int frequency(void *context,uint32_t hz) { (void)context;return lcr_board
 static int save(void *context,lcr_cal_profile *profile) { (void)context;return lcr_journal_save(lcr_board_journal(),profile); }
 
 #if defined(LCR_WAVE_TEST)
-/* Analog bring-up image: board init leaves the AD9833 at 1 kHz but in reset.
- * Release reset without starting any measurement, so TP1 carries a continuous
- * 1 kHz sine and the fixture is unloaded (all range relays released). */
+#include <math.h>
+
+/* SWD-readable diagnostics: last captured frame's fitted amplitudes, in millicodes. */
+typedef struct {
+    uint32_t seq, status;
+    int32_t v1amp, v2amp, v1dc, v2dc, v1res, v2res;
+} lcr_wave_diag;
+volatile lcr_wave_diag lcr_wave_diag_data;
+
+/* Analog bring-up image: keep the DAC excitation running at 1 kHz with all
+ * range relays released (TP1 = unloaded excitation). In parallel, capture one
+ * 1 kHz frame per 250 ms and publish V1/V2 fits so the ADC path can be checked
+ * over SWD. */
+static void wave_diag_run(void) {
+    const lcr_measure_config cfg = {1u, 0u, 8000000.0, 0}; /* 1 kHz, 10 ohm slot. */
+    lcr_measurement m;
+    uint32_t token = 1u;
+    uint32_t next = lcr_board_millis(), led = next, on = 0u;
+    int pending = 0;
+    for (;;) {
+        const uint16_t *pairs = 0;
+        size_t count = 0u;
+        uint32_t got = 0u;
+        const int taken = lcr_board_capture_take(&pairs, &count, &got);
+        if (taken > 0) {
+            (void)lcr_measure_frame(pairs, count, &cfg, &m);
+            lcr_wave_diag_data.status = (uint32_t)m.status;
+            lcr_wave_diag_data.v1amp = (int32_t)(hypot(m.v1.phasor.re, m.v1.phasor.im) * 1000.0);
+            lcr_wave_diag_data.v2amp = (int32_t)(hypot(m.v2.phasor.re, m.v2.phasor.im) * 1000.0);
+            lcr_wave_diag_data.v1dc = (int32_t)(m.v1.dc * 1000.0);
+            lcr_wave_diag_data.v2dc = (int32_t)(m.v2.dc * 1000.0);
+            lcr_wave_diag_data.v1res = (int32_t)(m.v1.residual_rms * 1000.0);
+            lcr_wave_diag_data.v2res = (int32_t)(m.v2.residual_rms * 1000.0);
+            ++lcr_wave_diag_data.seq;
+            pending = 0;
+            next = lcr_board_millis() + 250u;
+        } else if (taken < 0) {
+            lcr_wave_diag_data.status = 0xEEEE0000u;
+            pending = 0;
+            next = lcr_board_millis() + 250u;
+        }
+        const uint32_t now = lcr_board_millis();
+        if (!pending && (int32_t)(now - next) >= 0) {
+            pending = lcr_board_capture_start(0, 1u, 0u, 256u, token);
+            if (pending) ++token;
+            else { lcr_wave_diag_data.status = 0xDDDD0000u; next = now + 250u; }
+        }
+        if ((uint32_t)(now - led) >= 500u) { led = now; on ^= 1u; lcr_board_led((int)on); }
+        __WFI();
+    }
+}
+
 static void wave_test_run(void) {
     if (!lcr_board_init()) {
         for (;;) { lcr_board_led(1);__WFI(); }
@@ -21,16 +70,8 @@ static void wave_test_run(void) {
     if (!io.mute(io.context, 0)) {
         for (;;) { lcr_board_led(1);__WFI(); }
     }
-    (void)lcr_board_puts("LCR WAVE TEST: TP1 1 kHz, relays released\r\n");
-    uint32_t next = lcr_board_millis();
-    uint32_t on = 0u;
-    for (;;) {
-        const uint32_t now = lcr_board_millis();
-        if ((uint32_t)(now - next) >= 500u) {
-            next = now; on ^= 1u; lcr_board_led((int)on);
-        }
-        __WFI();
-    }
+    (void)lcr_board_puts("LCR WAVE TEST: TP1 1 kHz, relays released; ADC diag on\r\n");
+    wave_diag_run();
 }
 #endif
 
