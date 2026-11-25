@@ -30,6 +30,14 @@ typedef struct {
     uint32_t result_seq;
     /* Real standard impedance for RF STANDARD calibration, 0 = nominal Rf. */
     double cal_standard_ohm;
+    /* Display stabilisation: median of the last few corrected impedances on the
+     * same frequency/range, plus a classification hysteresis so phase noise
+     * cannot flip the reading between R, L and C. */
+    lcr_complex smooth_hist[3];
+    unsigned smooth_n;
+    unsigned smooth_frequency, smooth_range;
+    lcr_component stable_kind;
+    unsigned kind_streak;
 } lcr_app;
 int lcr_app_init(lcr_app *app, lcr_app_io io, const lcr_cal_profile *profile, unsigned buttons, uint32_t now);
 void lcr_app_poll(lcr_app *app, unsigned buttons, uint32_t now);

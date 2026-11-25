@@ -1,4 +1,4 @@
-﻿#include "lcr_measure.h"
+#include "lcr_measure.h"
 #include "lcr_config.h"
 
 #include <math.h>
@@ -150,12 +150,16 @@ lcr_range_choice lcr_choose_range(const lcr_measurement *frame, uint8_t visited)
     const double amplitude1 = hypot(frame->v1.phasor.re, frame->v1.phasor.im);
     const double amplitude2 = hypot(frame->v2.phasor.re, frame->v2.phasor.im);
     if (amplitude1 < 3.0 || amplitude1 < 14.14213562373095 * frame->v1.residual_rms) return choice;
+    /* V2 carries the I-V signal; when it is buried in the channel noise the
+       right move is another range step (more Rf -> more signal), not a hard
+       failure.  The old 14.14-sigma gate made noisy channels report
+       FRAME_ERROR instead of trying the next range. */
+    const double v2_noise = 6.0 * frame->v2.residual_rms;
     const double headroom = fmin(frame->v2.dc - 32.0, 4063.0 - frame->v2.dc);
-    const double ceiling = fmin(1400.0, 0.85 * headroom);
+    const double ceiling = fmin(1750.0, 0.9 * headroom);
     int direction = 0;
     if (frame->v2.clipped || amplitude2 > ceiling) direction = -1;
-    else if (amplitude2 < 80.0) direction = 1;
-    else if (amplitude2 < 14.14213562373095 * frame->v2.residual_rms) return choice;
+    else if (amplitude2 < 80.0 || amplitude2 < v2_noise) direction = 1;
     else if (frame->valid) {
         choice.action = LCR_RANGE_ACCEPT;
         return choice;

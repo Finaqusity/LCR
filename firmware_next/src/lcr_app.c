@@ -59,11 +59,17 @@ int lcr_app_init(lcr_app *a, lcr_app_io io, const lcr_cal_profile *profile, unsi
     lcr_ui_measure(&a->canvas, 0, a->model, "IDLE", 0);
     return 1;
 }
+static void reset_filter(lcr_app *a) {
+    a->smooth_n = 0u;
+    a->stable_kind = LCR_COMPONENT_UNKNOWN;
+    a->kind_streak = 0u;
+}
 static void start_measure(lcr_app *a, uint32_t now) {
     a->page = LCR_PAGE_MEASURE;
     a->running = 1u;
     a->scan = a->frequency_mode == 0u;
     a->scan_index = 0u; a->have_best = 0u;
+    reset_filter(a);
     a->next_start = now;
     a->dirty = 1u;
 }
@@ -258,6 +264,65 @@ static double score(const lcr_measurement *m) {
     if (m->parameters.kind == LCR_COMPONENT_UNKNOWN) return -100.0;
     return 90.0 - 20.0*fabs(log10(fmax(fabs(m->corrected_z.im),1e-12)/1000.0));
 }
+static double median_of(const double *v, unsigned n) {
+    double tmp[3];
+    unsigned i, j;
+    for (i = 0u; i < n; ++i) tmp[i] = v[i];
+    for (i = 1u; i < n; ++i) {
+        const double key = tmp[i];
+        for (j = i; j > 0u && tmp[j - 1u] > key; --j) tmp[j] = tmp[j - 1u];
+        tmp[j] = key;
+    }
+    return n & 1u ? tmp[n / 2u] : 0.5 * (tmp[n / 2u - 1u] + tmp[n / 2u]);
+}
+
+/* Median of the last few complex results on the same frequency/range plus a
+ * two-sample hysteresis on R/L/C.  The V2 channel noise (~130 codes) makes a
+ * single phase estimate jitter around the 1.15 degree R threshold, which used
+ * to flip the displayed component and retrigger the AUTO frequency scan on
+ * every measurement. */
+static void stabilise_result(lcr_app *a) {
+    lcr_measurement *m = &a->last;
+    lcr_parameters p;
+    double re[3], im[3];
+    lcr_complex z;
+    unsigned i;
+    if (!m->valid || m->parameters.kind == LCR_COMPONENT_UNKNOWN) {
+        a->smooth_n = 0u;
+        return;
+    }
+    if (a->smooth_n == 0u || m->frequency_index != a->smooth_frequency ||
+        m->range_index != a->smooth_range) {
+        a->smooth_frequency = m->frequency_index;
+        a->smooth_range = m->range_index;
+        a->smooth_n = 0u;
+    }
+    if (a->smooth_n == 3u) {
+        a->smooth_hist[0] = a->smooth_hist[1];
+        a->smooth_hist[1] = a->smooth_hist[2];
+        --a->smooth_n;
+    }
+    a->smooth_hist[a->smooth_n++] = m->corrected_z;
+    for (i = 0u; i < a->smooth_n; ++i) {
+        re[i] = a->smooth_hist[i].re;
+        im[i] = a->smooth_hist[i].im;
+    }
+    z.re = median_of(re, a->smooth_n);
+    z.im = median_of(im, a->smooth_n);
+    if (lcr_parameters_from_z(z, m->actual_hz, &p) != LCR_OK) return;
+    if (p.kind == a->stable_kind) {
+        a->kind_streak = 0u;
+    } else if (a->stable_kind == LCR_COMPONENT_UNKNOWN) {
+        a->stable_kind = p.kind;
+        a->kind_streak = 0u;
+    } else if (++a->kind_streak >= 2u) {
+        a->stable_kind = p.kind;
+        a->kind_streak = 0u;
+    }
+    if (a->stable_kind != LCR_COMPONENT_UNKNOWN) p.kind = a->stable_kind;
+    m->parameters = p;
+}
+
 static void result(lcr_app *a, uint32_t now) {
     if (a->calibration) { calibration_result(a, now); return; }
     if (a->scan) {
@@ -271,15 +336,15 @@ static void result(lcr_app *a, uint32_t now) {
         a->scan = 0u; a->last = a->best;
     } else {
         if (!a->frequency_mode && a->last.valid &&
-            (a->last.parameters.kind != a->session.result.parameters.kind ||
-             a->session.result.parameters.magnitude_ohm > 2.0*a->last.parameters.magnitude_ohm ||
-             a->session.result.parameters.magnitude_ohm < 0.5*a->last.parameters.magnitude_ohm)) {
+            (a->session.result.parameters.magnitude_ohm > 4.0*a->last.parameters.magnitude_ohm ||
+             a->session.result.parameters.magnitude_ohm < 0.25*a->last.parameters.magnitude_ohm)) {
             a->scan=1u; a->scan_index=0u; a->have_best=0u;
             lcr_session_stop(&a->session); a->session.keep_excitation=0u;
             a->next_start=now+40u; a->dirty=1u; return;
         }
         a->last = a->session.result;
     }
+    stabilise_result(a);
     a->active_frequency = a->last.frequency_index; a->active_range = a->last.range_index;
     ++a->result_seq;
     a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty = 1u;
@@ -353,11 +418,11 @@ void lcr_app_halt(lcr_app *a) { stop(a);a->calibration=0u;a->page=LCR_PAGE_MEASU
 
 void lcr_app_set_frequency_mode(lcr_app *a, unsigned mode) {
     if (!a || mode > 4u) return;
-    a->frequency_mode = mode; a->dirty = 1u;
+    a->frequency_mode = mode; reset_filter(a); a->dirty = 1u;
 }
 void lcr_app_set_range_mode(lcr_app *a, unsigned mode) {
     if (!a || mode > 6u) return;
-    a->range_mode = mode; a->dirty = 1u;
+    a->range_mode = mode; reset_filter(a); a->dirty = 1u;
 }
 void lcr_app_set_model(lcr_app *a, unsigned parallel) {
     if (!a) return;
