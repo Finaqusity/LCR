@@ -26,6 +26,10 @@ typedef struct {
     double best_score;
     lcr_complex cal_sum;
     const char *message, *message2;
+    /* Result generation counter for the serial protocol (0 = none yet). */
+    uint32_t result_seq;
+    /* Real standard impedance for RF STANDARD calibration, 0 = nominal Rf. */
+    double cal_standard_ohm;
 } lcr_app;
 int lcr_app_init(lcr_app *app, lcr_app_io io, const lcr_cal_profile *profile, unsigned buttons, uint32_t now);
 void lcr_app_poll(lcr_app *app, unsigned buttons, uint32_t now);
@@ -34,4 +38,20 @@ void lcr_app_capture_error(lcr_app *app);
 void lcr_app_halt(lcr_app *app);
 /* Same actions as the two physical keys; also usable for host simulation. */
 void lcr_app_event(lcr_app *app, unsigned events, uint32_t now);
+
+/* Serial-console API: every action is shared with the UI path, so the web
+ * console and the keys cannot diverge. Modes are 0..4 (frequency) and 0..6
+ * (range); model 0=series 1=parallel. Start returns 0 while a capture is
+ * active; calibration kind is an lcr_capture_kind value. */
+void lcr_app_set_frequency_mode(lcr_app *app, unsigned mode);
+void lcr_app_set_range_mode(lcr_app *app, unsigned mode);
+void lcr_app_set_model(lcr_app *app, unsigned parallel);
+int lcr_app_start_measure(lcr_app *app, uint32_t now);
+int lcr_app_stop_measure(lcr_app *app);
+int lcr_app_cal_start(lcr_app *app, unsigned kind, double standard_ohm, uint32_t now);
+int lcr_app_cal_save(lcr_app *app);
+int lcr_app_cal_clear(lcr_app *app);
+int lcr_app_cal_abort(lcr_app *app);
+/* 0 = nominal, up to 4 with channel/fixture/standard calibration present. */
+unsigned lcr_app_calibration_level(const lcr_app *app);
 #endif

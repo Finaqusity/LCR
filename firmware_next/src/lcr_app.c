@@ -4,6 +4,9 @@
 #include <string.h>
 #include "lcr_config.h"
 
+/* Implemented below; used by the settings menu before its definition. */
+int lcr_app_cal_save(lcr_app *a);
+
 static const unsigned frequencies[4] = {1u,2u,3u,0u};
 static const char *const menu_names[] = {"FREQUENCY", "RANGE", "CHANNEL CAL", "OPEN CAL", "RF STANDARD",
     "SHORT CAL:LOCKED", "SAVE CAL", "CLEAR CAL", "BACK"};
@@ -69,33 +72,32 @@ static void menu_activate(lcr_app *a) {
     else if (a->menu == 1u) a->range_mode = (a->range_mode + 1u) % 7u;
     else if (a->menu >= 2u && a->menu <= 4u) a->page = LCR_PAGE_CONFIRM;
     else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
-    else if (a->menu == 6u) {
-        if (a->session.frontend.state != LCR_FE_MUTED || !a->io.save ||
-            !a->io.save(a->io.context, &a->profile)) message(a, "SAVE FAILED", "RAM CAL RETAINED");
-        else { a->unsaved = 0u; message(a, "CAL SAVED", "CRC VERIFIED"); }
-    } else if (a->menu == 7u) a->page = LCR_PAGE_CONFIRM;
+    else if (a->menu == 6u) (void)lcr_app_cal_save(a);
+    else if (a->menu == 7u) a->page = LCR_PAGE_CONFIRM;
     else a->page = LCR_PAGE_MEASURE;
 }
-static void confirm_execute(lcr_app *a, uint32_t now) {
-    if (a->menu == 7u) {
-        lcr_cal_profile_nominal(&a->profile, a->profile.board_id, a->profile.fixture_id, a->profile.hse_hz);
-        a->unsaved = 1u; a->last.valid = 0u; message(a, "CAL CLEARED IN RAM", "SAVE TO MAKE PERMANENT");
-        return;
-    }
+/* Start a calibration sweep; shared by the key UI and the serial console. */
+static int cal_begin(lcr_app *a, unsigned kind, uint32_t now) {
+    if (!a || active(a)) return 0;
     a->working = a->profile;
-    a->calibration = a->menu == 2u ? LCR_CAPTURE_CHANNEL : a->menu == 3u ? LCR_CAPTURE_OPEN : LCR_CAPTURE_STANDARD;
+    a->calibration = kind;
     a->cal_frequency = 0u;
-    a->cal_range = a->calibration == LCR_CAPTURE_CHANNEL ? 3u :
-                    a->calibration == LCR_CAPTURE_STANDARD ? (a->range_mode ? a->range_mode - 1u : a->active_range) : 0u;
-    if (a->calibration != LCR_CAPTURE_CHANNEL) {
+    a->cal_range = kind == LCR_CAPTURE_CHANNEL ? 3u :
+                    kind == LCR_CAPTURE_STANDARD ? (a->range_mode ? a->range_mode - 1u : a->active_range) : 0u;
+    if (kind != LCR_CAPTURE_CHANNEL) {
         for (unsigned f = 0u; f < 4u; ++f)
             if (!(a->working.slots[f][a->cal_range].flags & LCR_CAL_CHANNEL)) {
-                message(a, "RUN CHANNEL CAL FIRST", "DISCONNECT DUT"); return;
+                message(a, "RUN CHANNEL CAL FIRST", "DISCONNECT DUT"); return 0;
             }
     }
     a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
     a->last.valid = 0u;
-    a->next_start = now; a->page = LCR_PAGE_CAL;
+    a->next_start = now; a->page = LCR_PAGE_CAL; a->dirty = 1u;
+    return 1;
+}
+static void confirm_execute(lcr_app *a, uint32_t now) {
+    if (a->menu == 7u) { (void)lcr_app_cal_clear(a); return; }
+    (void)cal_begin(a, a->menu == 2u ? LCR_CAPTURE_CHANNEL : a->menu == 3u ? LCR_CAPTURE_OPEN : LCR_CAPTURE_STANDARD, now);
 }
 /* One physical key (WK_UP) with three gestures:
  *   MEASURE  short = start/stop, long = settings, double = series/parallel
@@ -155,8 +157,10 @@ static int finish_slot(lcr_app *a) {
         slot->yo = divide(mean, denominator);
         slot->flags |= LCR_CAL_FIXTURE; ++slot->revision;
     } else {
-        /* Exact standard R is the displayed nominal Rf. No short is involved. */
-        const lcr_complex numerator = {-lcr_nominal_rf[r]*slot->alpha.re,-lcr_nominal_rf[r]*slot->alpha.im};
+        /* The displayed nominal Rf is replaced by the real standard value the
+           operator entered (web console `CAL,STD,<uohm>`) when it is known. */
+        const double standard = a->cal_standard_ohm > 0.0 ? a->cal_standard_ohm : lcr_nominal_rf[r];
+        const lcr_complex numerator = {-standard*slot->alpha.re,-standard*slot->alpha.im};
         const lcr_complex zf = divide(numerator,mean);
         const lcr_complex one = {1.0,0.0}, y = divide(one,zf);
         if (y.re <= 0.0 || y.im < 0.0 || !isfinite(y.re) || !isfinite(y.im)) return 0;
@@ -277,6 +281,7 @@ static void result(lcr_app *a, uint32_t now) {
         a->last = a->session.result;
     }
     a->active_frequency = a->last.frequency_index; a->active_range = a->last.range_index;
+    ++a->result_seq;
     a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty = 1u;
 }
 static void render(lcr_app *a) {
@@ -343,3 +348,69 @@ void lcr_app_submit(lcr_app *a, uint32_t token, const uint16_t *pairs, size_t co
 }
 void lcr_app_capture_error(lcr_app *a) { message(a,"ADC / DMA ERROR","NO RESULT ACCEPTED"); }
 void lcr_app_halt(lcr_app *a) { stop(a);a->calibration=0u;a->page=LCR_PAGE_MEASURE;a->dirty=1u; }
+
+/* ---- Serial-console API -------------------------------------------------- */
+
+void lcr_app_set_frequency_mode(lcr_app *a, unsigned mode) {
+    if (!a || mode > 4u) return;
+    a->frequency_mode = mode; a->dirty = 1u;
+}
+void lcr_app_set_range_mode(lcr_app *a, unsigned mode) {
+    if (!a || mode > 6u) return;
+    a->range_mode = mode; a->dirty = 1u;
+}
+void lcr_app_set_model(lcr_app *a, unsigned parallel) {
+    if (!a) return;
+    a->model = parallel ? LCR_MODEL_PARALLEL : LCR_MODEL_SERIES; a->dirty = 1u;
+}
+int lcr_app_start_measure(lcr_app *a, uint32_t now) {
+    if (!a || active(a)) return 0;
+    start_measure(a, now); return 1;
+}
+int lcr_app_stop_measure(lcr_app *a) {
+    if (!a) return 0;
+    stop(a); a->dirty = 1u; return 1;
+}
+int lcr_app_cal_start(lcr_app *a, unsigned kind, double standard_ohm, uint32_t now) {
+    if (!a) return 0;
+    if (kind != LCR_CAPTURE_CHANNEL && kind != LCR_CAPTURE_OPEN && kind != LCR_CAPTURE_STANDARD) return 0;
+    if (active(a) || a->calibration) return 0;
+    a->cal_standard_ohm = standard_ohm > 0.0 ? standard_ohm : 0.0;
+    return cal_begin(a, kind, now);
+}
+int lcr_app_cal_save(lcr_app *a) {
+    if (!a || active(a)) return 0;
+    if (a->session.frontend.state != LCR_FE_MUTED || !a->io.save ||
+        !a->io.save(a->io.context, &a->profile)) {
+        message(a, "SAVE FAILED", "RAM CAL RETAINED"); return 0;
+    }
+    a->unsaved = 0u; message(a, "CAL SAVED", "CRC VERIFIED"); return 1;
+}
+int lcr_app_cal_clear(lcr_app *a) {
+    if (!a) return 0;
+    lcr_cal_profile_nominal(&a->profile, a->profile.board_id, a->profile.fixture_id, a->profile.hse_hz);
+    a->unsaved = 1u; a->last.valid = 0u;
+    message(a, "CAL CLEARED IN RAM", "SAVE TO MAKE PERMANENT");
+    return 1;
+}
+int lcr_app_cal_abort(lcr_app *a) {
+    if (!a || !a->calibration) return 0;
+    message(a, "CAL CANCELLED", "PREVIOUS CAL RETAINED"); return 1;
+}
+unsigned lcr_app_calibration_level(const lcr_app *a) {
+    if (!a) return 0u;
+    unsigned channel = 1u, fixture = 0u, feedback = 0u, complete = 1u;
+    for (unsigned f = 0u; f < LCR_FREQUENCY_COUNT; ++f)
+        for (unsigned r = 0u; r < LCR_RANGE_COUNT; ++r) {
+            const uint32_t flags = a->profile.slots[f][r].flags;
+            if (!(flags & LCR_CAL_CHANNEL)) channel = 0u;
+            if (flags & LCR_CAL_FIXTURE) fixture = 1u;
+            if (flags & LCR_CAL_FEEDBACK) feedback = 1u;
+            if ((flags & LCR_CAL_ALL) != LCR_CAL_ALL) complete = 0u;
+        }
+    unsigned level = channel ? 1u : 0u;
+    if (level && (fixture || feedback)) level = 2u;
+    if (level >= 2u && fixture && feedback) level = 3u;
+    if (level == 3u && complete) level = 4u;
+    return level;
+}

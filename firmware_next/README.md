@@ -52,6 +52,23 @@
 - 实测（ST-Link，夹具开路）：0.08 s `page=MEASURE, running=1` → 2.5 s 失败进 `MESSAGE` →
   4.5 s 再次 `MEASURE, running=1` 循环，自动启动与重试均生效。
 
+## 串口协议 v1（网页上位机）
+
+固件版本 `0.5.0` 起实现了 `docs/rewrite/网页上位机需求与接口.md` 的 ASCII 行协议，可通过
+USART1（PA9/PA10，115200 8N1）与网页上位机通信。代码在 `include/lcr_protocol.h` +
+`platform/lcr_protocol.c`，主循环非阻塞轮询，不占用测量时序。
+
+- 帧：`$TYPE,<field>...*XX\r\n`，`XX` 为 `$` 后到 `*` 前所有字节的 XOR（大写 HEX），行 ≤200 B。
+- 上行：`$BOOT`（启动/收到 `?`）、`$RES`（每次测量完成）、`$STATE`（运行/模式/校准状态变化）、
+  `$CAL`（校准进度与结束）、`$MSG`（屏幕提示，如 `CAL SAVED | CRC VERIFIED`）、`$ACK`/`$ERR`。
+- 下行命令：`?` `PING` `M`（单次）`C1/C0`（连续开/关）`F0..4`（AUTO/100/1k/10k/100k）
+  `R0..6`（AUTO/10Ω…1MΩ）`S0/1`（串联/并联）`CAL,CH|OPEN|STD,<µΩ>|SAVE|CLEAR|ABORT`
+  `RAW,0/1` `RESET` `H`。
+- 单位：freq_mHz、rf_mΩ、阻抗 µΩ、相位 mdeg、D/Q ppm；`CAL,STD` 参数是标准件真实阻抗（µΩ，
+  例如 1975.2 Ω = `1975200000`）。
+- 示例：上电 `$BOOT,1,<uid>,0.5.0,1,<cal_level>,4,6*XX`；单次测量
+  `M` → `$RES,<seq>,<ms>,1000000,1,2,1000000,0,1,00000000,...*XX`。
+
 ## 模块
 
 | 模块 | 作用 |

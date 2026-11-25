@@ -1,5 +1,6 @@
 #include "lcr_app.h"
 #include "lcr_board.h"
+#include "lcr_protocol.h"
 #include "stm32f4xx.h"
 #include "lcr_config.h"
 
@@ -96,6 +97,8 @@ int main(void) {
     if (!lcr_app_init(&app,io,&boot_profile,lcr_board_buttons(),lcr_board_millis()))
         for (;;) { lcr_board_led(1);__WFI(); }
     int display_ok=lcr_board_display_init();
+    lcr_protocol_init(&app, "0.5.0", board, LCR_FIXTURE_ID);
+    lcr_protocol_boot(&app);
     uint32_t displayed=0u,recovery=0u;
 #if LCR_AUTO_START
     /* Bench/demo convenience: the on-board key is on the back of the board, so
@@ -105,16 +108,8 @@ int main(void) {
 #endif
     for (;;) {
         uint32_t now=lcr_board_millis();
-        for (unsigned budget=0u;budget<8u;++budget) {
-            const int ch=lcr_board_getchar();
-            if (ch==-1)break;
-            if (ch==-2) { (void)lcr_board_puts("RX ERROR\r\n");break; }
-            if (ch=='1'||ch=='2')lcr_app_event(&app,LCR_KEY_SHORT,now);
-            else if(ch=='b')lcr_app_event(&app,LCR_KEY_LONG,now);
-            else if(ch=='d')lcr_app_event(&app,LCR_KEY_DOUBLE,now);
-            else if(ch=='s') { lcr_app_halt(&app);(void)lcr_board_puts("STOP\r\n"); }
-            else if(ch=='?') (void)lcr_board_puts("1/2:short b:long d:double s:stop\r\n");
-        }
+        /* Serial console: commands + automatic $RES/$STATE/$CAL frames. */
+        lcr_protocol_poll(&app, now);
         lcr_app_poll(&app,lcr_board_buttons(),now);
 #if LCR_AUTO_START
         /* Keep retrying a failed measurement every 2 s, so connecting the DUT
@@ -131,6 +126,8 @@ int main(void) {
         if(capture>0)lcr_app_submit(&app,token,pairs,count,lcr_board_millis());
         else if(capture<0)lcr_app_capture_error(&app);
         if(capture)lcr_app_poll(&app,lcr_board_buttons(),lcr_board_millis());
+        /* Push a freshly completed result out immediately. */
+        lcr_protocol_poll(&app, lcr_board_millis());
         now=lcr_board_millis();
         if(app.session.state!=LCR_SESSION_CAPTURING) {
             if(!display_ok && now-recovery>=2000u) { recovery=now;display_ok=lcr_board_display_init();app.dirty=1u; }
