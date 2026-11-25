@@ -111,14 +111,18 @@ static lcr_status process(const uint16_t *pairs, size_t count,
     }
     status = lcr_feedback(rf, cf, out->actual_hz, &zf);
     if (status != LCR_OK) return status;
-    status = lcr_impedance(&out->v1, &out->v2, zf, alpha, &out->raw_z);
-    if (status != LCR_OK) return status;
+    status = lcr_impedance_ex(&out->v1, &out->v2, zf, alpha, 1, &out->raw_z);
+    if (status != LCR_OK && status != LCR_WEAK_SIGNAL) return status;
+    const lcr_status signal_status = status; /* LCR_OK or LCR_WEAK_SIGNAL */
     out->corrected_z = out->raw_z;
     if (cal && (cal->flags & LCR_CAL_FIXTURE)) {
-        status = lcr_compensate(out->raw_z, cal->zs, cal->yo, &out->corrected_z);
-        if (status != LCR_OK) return status;
+        const lcr_status compensated = lcr_compensate(out->raw_z, cal->zs, cal->yo, &out->corrected_z);
+        if (compensated != LCR_OK) return compensated;
     }
-    return lcr_parameters_from_z(out->corrected_z, out->actual_hz, &out->parameters);
+    const lcr_status parameter_status =
+        lcr_parameters_from_z(out->corrected_z, out->actual_hz, &out->parameters);
+    if (parameter_status != LCR_OK) return parameter_status;
+    return signal_status;
 }
 
 lcr_status lcr_measure_frame(const uint16_t *pairs, size_t count,
@@ -126,7 +130,7 @@ lcr_status lcr_measure_frame(const uint16_t *pairs, size_t count,
     if (!out) return LCR_BAD_INPUT;
     memset(out, 0, sizeof(*out));
     out->status = process(pairs, count, config, out);
-    out->valid = out->status == LCR_OK;
+    out->valid = out->status == LCR_OK || out->status == LCR_WEAK_SIGNAL;
     return out->status;
 }
 
@@ -152,7 +156,7 @@ lcr_range_choice lcr_choose_range(const lcr_measurement *frame, uint8_t visited)
     if (frame->v2.clipped || amplitude2 > ceiling) direction = -1;
     else if (amplitude2 < 80.0) direction = 1;
     else if (amplitude2 < 14.14213562373095 * frame->v2.residual_rms) return choice;
-    else if (frame->status == LCR_OK && frame->valid) {
+    else if (frame->valid) {
         choice.action = LCR_RANGE_ACCEPT;
         return choice;
     } else return choice;

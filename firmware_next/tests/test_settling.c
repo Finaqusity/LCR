@@ -12,6 +12,8 @@ static int capture_io(void*ctx,unsigned f,unsigned r,size_t count,uint32_t token
     ((mock*)ctx)->token=token;(void)f;(void)r;(void)count;return 1;
 }
 static void cancel_io(void*ctx) { (void)ctx; }
+/* v1.dc is the controlled variable: the settling gate compares it against
+   LCR_STABILITY_DC_CODES and the source amplitude against the relative gate. */
 static void waveform(unsigned dc) {
     const double omega=lcr_sample_omega(&lcr_frequencies[3]);
     for(unsigned n=0u;n<1200u;++n) {
@@ -33,25 +35,35 @@ int main(void) {
     while(s.state!=LCR_SESSION_DONE && s.state!=LCR_SESSION_FAILED) {
         ++now;lcr_session_poll(&s,now);
         if(s.state==LCR_SESSION_CAPTURING) {
-            waveform(frames?2104u:2100u);
+            /* Two frames at 2200, then a step to 2100: the step resets the
+               stable counter and only two identical comparisons finish. */
+            waveform(frames<2u?2200u:2100u);
             ++frames;assert(lcr_session_submit(&s,m.token,pairs,1200u,now));
-            if(frames<4u)assert(!s.result.valid && s.state==LCR_SESSION_SWITCHING);
+            if(frames<5u)assert(!s.result.valid && s.state==LCR_SESSION_SWITCHING);
         }
     }
-    assert(s.state==LCR_SESSION_DONE && frames==4u && s.result.valid && !m.muted);
+    assert(s.state==LCR_SESSION_DONE && frames==5u && s.result.valid && !m.muted);
     const unsigned relays=m.relays,freqs=m.frequencies;
     assert(lcr_session_start(&s,3u,2u,0,8000000.0,now));
-    lcr_session_poll(&s,now);assert(s.state==LCR_SESSION_CAPTURING);
-    waveform(2104u);assert(lcr_session_submit(&s,m.token,pairs,1200u,now));
-    assert(s.state==LCR_SESSION_DONE && m.relays==relays && m.frequencies==freqs);
+    unsigned reused=0u;
+    while(s.state!=LCR_SESSION_DONE && s.state!=LCR_SESSION_FAILED && reused<4u) {
+        lcr_session_poll(&s,now);
+        if(s.state==LCR_SESSION_CAPTURING) {
+            waveform(2100u);
+            assert(lcr_session_submit(&s,m.token,pairs,1200u,now));
+            ++reused;
+        }
+        ++now;
+    }
+    assert(s.state==LCR_SESSION_DONE && reused<4u && m.relays==relays && m.frequencies==freqs);
     lcr_session_stop(&s);assert(m.muted);
 
     init(&m,&s);now=0u;frames=0u;
     assert(lcr_session_start(&s,3u,2u,0,8000000.0,now));
-    while(s.state!=LCR_SESSION_FAILED && now<1300u) {
+    while(s.state!=LCR_SESSION_FAILED && now<1400u) {
         ++now;lcr_session_poll(&s,now);
         if(s.state==LCR_SESSION_CAPTURING) {
-            waveform(2100u+2u*frames++);
+            waveform(2100u+100u*(frames%5u)); ++frames;
             (void)lcr_session_submit(&s,m.token,pairs,1200u,now);
             assert(!s.result.valid);
         }

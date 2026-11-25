@@ -1,12 +1,12 @@
-﻿#include "lcr_core.h"
+#include "lcr_core.h"
 
 #include <float.h>
 #include <math.h>
 
 static const double tau = 6.283185307179586476925286766559;
 const lcr_frequency lcr_frequencies[4] = {
-    {100u, 52500u, 128u}, {1000u, 5250u, 256u},
-    {10000u, 525u, 512u}, {100000u, 70u, 1200u}
+    {100u, 52500u, 128u}, {1000u, 5250u, 1024u},
+    {10000u, 525u, 1024u}, {100000u, 70u, 1200u}
 };
 /* Range relay masks, indexed 10R, 100R, 1K, 10K, 100K, 1M.
  * Bit n = PDn, high = relay energized (break-before-make; K78 cal = PD6).
@@ -128,11 +128,12 @@ static lcr_status quality(const lcr_fit *value, int allow_weak) {
     return LCR_OK;
 }
 
-lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
-                         lcr_complex zf, lcr_complex alpha, lcr_complex *out) {
-    lcr_status status = quality(v1, 0);
+lcr_status lcr_impedance_ex(const lcr_fit *v1, const lcr_fit *v2,
+                            lcr_complex zf, lcr_complex alpha, int allow_weak,
+                            lcr_complex *out) {
+    lcr_status status = quality(v1, allow_weak);
     if (status != LCR_OK) return status;
-    status = quality(v2, 0);
+    status = quality(v2, allow_weak);
     if (status != LCR_OK) return status;
     if (!finite_complex(zf) || !finite_complex(alpha) ||
         hypot(zf.re, zf.im) < 1e-12 || hypot(alpha.re, alpha.im) < 1e-12)
@@ -143,6 +144,11 @@ lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
     lcr_complex numerator = multiply(zf, ratio);
     numerator.re = -numerator.re; numerator.im = -numerator.im;
     return divide(numerator, alpha, out);
+}
+
+lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
+                         lcr_complex zf, lcr_complex alpha, lcr_complex *out) {
+    return lcr_impedance_ex(v1, v2, zf, alpha, 0, out);
 }
 
 lcr_status lcr_open_admittance(const lcr_fit *v1, const lcr_fit *v2,

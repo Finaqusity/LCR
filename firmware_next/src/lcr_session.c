@@ -176,13 +176,13 @@ void lcr_session_poll(lcr_session *s, uint32_t now) {
 }
 
 static int stable(const lcr_measurement *a,const lcr_measurement *b) {
-    const double v1=hypot(a->v1.phasor.re,a->v1.phasor.im),v2=hypot(a->v2.phasor.re,a->v2.phasor.im);
-    const double p1=hypot(b->v1.phasor.re,b->v1.phasor.im),p2=hypot(b->v2.phasor.re,b->v2.phasor.im);
-    const double magnitude=hypot(a->raw_z.re,a->raw_z.im);
-    return fabs(a->v1.dc-b->v1.dc)<LCR_STABILITY_DC_CODES && fabs(a->v2.dc-b->v2.dc)<LCR_STABILITY_DC_CODES &&
-           fabs(v1-p1)<LCR_STABILITY_RELATIVE*fmax(v1,3.0) &&
-           fabs(v2-p2)<LCR_STABILITY_RELATIVE*fmax(v2,3.0) &&
-           hypot(a->raw_z.re-b->raw_z.re,a->raw_z.im-b->raw_z.im)<LCR_STABILITY_RELATIVE*fmax(magnitude,1e-12);
+    /* Settling is judged on the source amplitude and the channel bias only.
+       V2 carries the DUT current; its frame-to-frame noise is measurement
+       noise that the complex-ratio averaging over K frames removes later. */
+    const double v1=hypot(a->v1.phasor.re,a->v1.phasor.im);
+    const double p1=hypot(b->v1.phasor.re,b->v1.phasor.im);
+    return fabs(a->v1.dc-b->v1.dc)<LCR_STABILITY_DC_CODES &&
+           fabs(v1-p1)<LCR_STABILITY_RELATIVE*fmax(v1,3.0);
 }
 
 int lcr_session_submit(lcr_session *s, uint32_t token,

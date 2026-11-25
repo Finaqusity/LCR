@@ -39,6 +39,11 @@ lcr_status lcr_fit_adc(const uint16_t *samples, size_t count, size_t stride,
 lcr_status lcr_feedback(double rf, double cf, double hz, lcr_complex *out);
 lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
                          lcr_complex zf, lcr_complex alpha, lcr_complex *out);
+/* Like lcr_impedance, but allow_weak keeps frames whose SNR is low: the
+   returned status is still LCR_WEAK_SIGNAL so callers can mark confidence. */
+lcr_status lcr_impedance_ex(const lcr_fit *v1, const lcr_fit *v2,
+                            lcr_complex zf, lcr_complex alpha, int allow_weak,
+                            lcr_complex *out);
 lcr_status lcr_open_admittance(const lcr_fit *v1, const lcr_fit *v2,
                                lcr_complex zf, lcr_complex alpha, lcr_complex *out);
 lcr_status lcr_compensate(lcr_complex zm, lcr_complex zs,
