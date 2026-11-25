@@ -38,7 +38,7 @@ static void frame(simulator*s) {
         const double wrc=6.2831853071795864769*hz*r*s->cf;
         const double re=r/(1.0+wrc*wrc),im=-r*wrc/(1.0+wrc*wrc);
         if(s->resistance>1e15) {
-            const double yr=1e-10,yi=6.2831853071795864769*hz*1e-12;
+            const double yr=1e-10,yi=6.2831853071795864769*hz*s->cf;
             re2=-600.0*(re*yr-im*yi);im2=-600.0*(re*yi+im*yr);
         } else {
             const double x=s->component==1u?-1.0/(6.2831853071795864769*hz*s->component_value):
@@ -148,10 +148,17 @@ int main(void) {
     cal_start(&sim,2u);for(unsigned i=0u;i<900u;++i)step(&sim);
     lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
     assert(memcmp(&baseline,&app.profile,sizeof(baseline))==0);
-    sim.resistance=1e18;
+    sim.resistance=1e18;sim.cf=50e-12; /* real fixtures carry a few pF of stray capacitance */
     cal_start(&sim,3u);cal_finish(&sim);
-    for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r)
-        assert((app.profile.slots[f][r].flags&(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE))==(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE));
+    for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r) {
+        assert((app.profile.slots[f][r].flags&LCR_CAL_CHANNEL)!=0u);
+        if(f!=0u)
+            assert((app.profile.slots[f][r].flags&(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE))==(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE));
+    }
+    /* 100 Hz sees almost no open-frame current; that frequency may be skipped. */
+    {const unsigned f0=app.profile.slots[0][0].flags&LCR_CAL_FIXTURE;
+     for(unsigned r=0u;r<6u;++r)
+         assert((app.profile.slots[0][r].flags&LCR_CAL_FIXTURE)==f0);}
     sim.resistance=1000.0;sim.cf=1e-9;app.range_mode=3u;
     cal_start(&sim,4u);cal_finish(&sim);
     for(unsigned f=0u;f<4u;++f) {

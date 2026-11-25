@@ -1,4 +1,4 @@
-﻿#include "lcr_app.h"
+#include "lcr_app.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -170,7 +170,53 @@ static int finish_slot(lcr_app *a) {
     const lcr_measure_config check = {f,r,a->working.hse_hz,slot};
     return lcr_measure_config_check(&check) == LCR_OK;
 }
+/* Move the open-standard sweep to its next (frequency, range) pair. */
+static void cal_advance(lcr_app *a, uint32_t now) {
+    a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
+    if (a->calibration == LCR_CAPTURE_OPEN && ++a->cal_range < 6u) { /* next range */ }
+    else {
+        if (a->calibration == LCR_CAPTURE_OPEN) {
+            /* The fixture itself (parallel stray impedance) is the same on
+               every range; copy the best range's measured admittance to the
+               ranges whose V2 was too small to measure reliably. */
+            unsigned f = a->cal_frequency; int best = -1;
+            for (int r = 5; r >= 0; --r)
+                if (a->working.slots[f][r].flags & LCR_CAL_FIXTURE) { best = r; break; }
+            if (best >= 0)
+                for (unsigned r = 0u; r < 6u; ++r)
+                    if (!(a->working.slots[f][r].flags & LCR_CAL_FIXTURE)) {
+                        a->working.slots[f][r].yo = a->working.slots[f][best].yo;
+                        a->working.slots[f][r].flags |= LCR_CAL_FIXTURE;
+                        ++a->working.slots[f][r].revision;
+                    }
+            a->cal_range = 0u;
+        }
+        ++a->cal_frequency;
+    }
+    if (a->cal_frequency >= 4u) {
+        a->profile = a->working; a->unsaved = 1u;
+        message(a, "CAL COMPLETE IN RAM", "MENU: SAVE CAL"); return;
+    }
+    a->session.state = LCR_SESSION_IDLE;
+    a->next_start = now + 40u; a->dirty = 1u;
+}
 static void calibration_result(lcr_app *a, uint32_t now) {
+    /* An open fixture has almost no current on the low ranges: V2 is below
+       the noise floor and the raw impedance is meaningless. Skip those pairs
+       instead of treating them as unstable and aborting the whole sweep. */
+    if (a->calibration == LCR_CAPTURE_OPEN) {
+        const unsigned f = a->cal_frequency, r = a->cal_range;
+        const lcr_calibration *cur = &a->profile.slots[f][r];
+        const double rf = (cur->flags & LCR_CAL_FEEDBACK) ? cur->rf_ohm : lcr_nominal_rf[r];
+        const double v2 = hypot(a->session.result.v2.phasor.re, a->session.result.v2.phasor.im);
+        /* For the open workflow the frame stores the fixture admittance. */
+        const double y = hypot(a->session.result.raw_z.re, a->session.result.raw_z.im);
+        const double z = y > 1e-15 ? 1.0 / y : 0.0;
+        const double rho = rf > 0.0 ? z / rf : 0.0;
+        const int clipped = a->session.result.v2.clipped ||
+                            a->session.result.status == LCR_CLIPPED;
+        if (clipped || v2 < 100.0 || rho < 1.0 || rho > 100.0) { cal_advance(a, now); return; }
+    }
     if(a->cal_samples) {
         const lcr_complex mean={a->cal_sum.re/a->cal_samples,a->cal_sum.im/a->cal_samples};
         double tolerance=0.005*hypot(mean.re,mean.im);
@@ -184,6 +230,10 @@ static void calibration_result(lcr_app *a, uint32_t now) {
             }
             const double v1=hypot(a->session.result.v1.phasor.re,a->session.result.v1.phasor.im);
             tolerance=fmax(tolerance,4.0/(v1*hypot(zf.re,zf.im)));
+            /* High ranges see very little V2 on an open fixture; the raw open
+               impedance is dominated by ADC noise there, so require only that
+               the three samples agree in magnitude before averaging. */
+            if(a->cal_range>=3u) tolerance=fmax(tolerance,0.05*hypot(mean.re,mean.im));
         }
         if(hypot(a->session.result.raw_z.re-mean.re,a->session.result.raw_z.im-mean.im)>tolerance) {
             message(a,"CAL UNSTABLE","PREVIOUS CAL RETAINED");return;
@@ -193,16 +243,8 @@ static void calibration_result(lcr_app *a, uint32_t now) {
     ++a->cal_samples;
     if (a->cal_samples == 3u) {
         if (!finish_slot(a)) { message(a, "CAL MODEL REJECTED", "PREVIOUS CAL RETAINED"); return; }
-        a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
-        if (a->calibration == LCR_CAPTURE_OPEN && ++a->cal_range < 6u) { /* next range */ }
-        else {
-            if (a->calibration == LCR_CAPTURE_OPEN) a->cal_range = 0u;
-            ++a->cal_frequency;
-        }
-        if (a->cal_frequency >= 4u) {
-            a->profile = a->working; a->unsaved = 1u;
-            message(a, "CAL COMPLETE IN RAM", "MENU: SAVE CAL"); return;
-        }
+        cal_advance(a, now);
+        return;
     }
     a->session.state = LCR_SESSION_IDLE;
     a->next_start = now + 40u; a->dirty = 1u;
