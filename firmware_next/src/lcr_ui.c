@@ -142,7 +142,9 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
     const unsigned digits = (unsigned)strlen(text);
     const unsigned unit_len = separator ? (unsigned)strlen(separator) : 0u;
     unsigned value_scale = 2u;
-    const unsigned value_y = details ? 14u : 10u;
+    /* Keep the big number fully inside the blue area of the two-colour panel
+       (top 16 rows of a 0.96" OLED are yellow). */
+    const unsigned value_y = 16u;
     if (!details) {
         const unsigned wide = digits * 18u + (unit_len ? 4u + unit_len * 6u : 0u);
         if (wide <= 128u) value_scale = 3u;
@@ -156,8 +158,7 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
     if (separator)
         lcr_canvas_text(c, value_x + digits * 6u * value_scale + 4u,
                         value_y + 10u * (value_scale - unit_scale) / 2u, separator, unit_scale);
-    const unsigned info_y = details ? 37u : 41u;
-    const unsigned cal_y = details ? 50u : 52u;
+    const unsigned info_y = details ? 37u : 47u;
     if (m && m->valid && m->range_index < LCR_RANGE_COUNT) {
         if (details) {
             char number[24],q[16],d[16];
@@ -169,17 +170,19 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
             if(m->parameters.available&LCR_PARAM_D)lcr_ui_number(d,sizeof(d),m->parameters.d,"");
             else (void)snprintf(d,sizeof(d),"--");
             (void)snprintf(text,sizeof(text),"Q:%s D:%s",q,d);
+            lcr_canvas_text(c, 0u, info_y + 13u, text, 1u);
         } else {
-            (void)snprintf(text, sizeof(text), "%lu HZ  RF:%lu", (unsigned long)(m->actual_hz + 0.5),
-                           (unsigned long)lcr_nominal_rf[m->range_index]);
+            char fbuf[10], rbuf[10];
+            const unsigned long hz = (unsigned long)(m->actual_hz + 0.5);
+            const unsigned long rf = (unsigned long)lcr_nominal_rf[m->range_index];
+            if (hz >= 1000ul) (void)snprintf(fbuf, sizeof(fbuf), "%luKHz", hz / 1000ul);
+            else (void)snprintf(fbuf, sizeof(fbuf), "%luHz", hz);
+            if (rf >= 1000000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luM", rf / 1000000ul);
+            else if (rf >= 1000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luK", rf / 1000ul);
+            else (void)snprintf(rbuf, sizeof(rbuf), "%luR", rf);
+            (void)snprintf(text, sizeof(text), "%s RF%s %s", fbuf, rbuf,
+                           m->calibration_flags ? "CAL" : "UNCAL");
             lcr_canvas_text(c, 0u, info_y, text, 1u);
-            if(!m->calibration_flags) (void)snprintf(text,sizeof(text),"UNCAL%s",m->parameters.negative_resistance?" NEG-R":"");
-            else (void)snprintf(text,sizeof(text),"CAL:%s%s%s%s",
-                m->calibration_flags&LCR_CAL_CHANNEL?"CH ":"",
-                m->calibration_flags&LCR_CAL_FEEDBACK?"RF ":"",
-                m->calibration_flags&LCR_CAL_FIXTURE?"OPEN":"",
-                m->parameters.negative_resistance?" NEG-R":"");
         }
-        lcr_canvas_text(c, 0u, cal_y, text, 1u);
     } else lcr_canvas_text(c, 0u, 47u, "KEY:START HOLD:MENU", 1u);
 }
