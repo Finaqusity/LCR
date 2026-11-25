@@ -217,6 +217,17 @@ static void dma1_stream6_reset(void) {
 }
 
 static void dac_mute_output(int muted) {
+#if LCR_EXCITATION_ALWAYS_ON
+    /* Keep the analogue sine running; only the logical state changes. */
+    if (muted) {
+        dds_muted = 1;
+        return;
+    }
+    if (TIM6->CR1 & TIM_CR1_CEN) {
+        dds_muted = 0;
+        return; /* Already running: do not restart or glitch the output. */
+    }
+#endif
     if (muted) {
         TIM6->CR1 &= ~TIM_CR1_CEN;
         dma1_stream6_reset();
@@ -263,10 +274,21 @@ int lcr_board_dds_frequency(uint32_t hz) {
     if ((1500000u % hz) != 0u) return 0;
     const uint32_t divisor = 1500000u / hz;
     if (divisor < 1u || divisor > 0x10000u) return 0;
+#if LCR_EXCITATION_ALWAYS_ON
+    /* Keep a continuous output: pause for a few clock cycles, retune, resume. */
+    const int was_running = (TIM6->CR1 & TIM_CR1_CEN) != 0u;
+    if (was_running) TIM6->CR1 &= ~TIM_CR1_CEN;
+#endif
     TIM6->ARR = divisor - 1u;
     TIM6->PSC = 0u;
     TIM6->EGR = TIM_EGR_UG;
     while (TIM6->SR & TIM_SR_UIF) TIM6->SR = ~TIM_SR_UIF;
+#if LCR_EXCITATION_ALWAYS_ON
+    if (was_running) {
+        TIM6->CNT = 0u;
+        TIM6->CR1 |= TIM_CR1_CEN;
+    }
+#endif
     return 1;
 }
 
@@ -367,7 +389,12 @@ int lcr_board_init(void) {
 #endif
     dds_initialized = 1;
     dds_muted = 1;
-    return lcr_board_dds_frequency(1000u);
+    if (!lcr_board_dds_frequency(1000u)) return 0;
+#if LCR_EXCITATION_DAC && LCR_EXCITATION_ALWAYS_ON
+    /* Continuous excitation from boot: TP1 shows a 1 kHz sine even while idle. */
+    dac_mute_output(0);
+#endif
+    return 1;
 }
 
 void lcr_board_led(int on) {

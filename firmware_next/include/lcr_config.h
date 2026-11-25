@@ -24,6 +24,16 @@
 #define LCR_EXCITATION_DAC 1u
 #endif
 
+/* Continuous excitation. 1 = the DAC sine keeps running even when the
+ * measurement layer requests "mute"; the logical mute state is still tracked
+ * (for frequency changes) but TP1 shows a continuous sine between
+ * measurements, which is what a bench instrument is expected to do.
+ * Frequency switches pause the timer for well under one cycle, i.e. invisible
+ * at 100 Hz..10 kHz.  Set to 0 to silence the excitation while idle. */
+#ifndef LCR_EXCITATION_ALWAYS_ON
+#define LCR_EXCITATION_ALWAYS_ON 1u
+#endif
+
 /* Excitation-presence gate: if the V1 fundamental peak is below this many ADC
  * codes (25 codes is about 20 mV peak at the V1 pin), reject the measurement as
  * "no excitation" instead of showing a result. */
