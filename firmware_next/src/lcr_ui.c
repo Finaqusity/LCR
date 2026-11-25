@@ -172,7 +172,7 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
             (void)snprintf(text,sizeof(text),"Q:%s D:%s",q,d);
             lcr_canvas_text(c, 0u, info_y + 13u, text, 1u);
         } else {
-            char fbuf[10], rbuf[10];
+            char fbuf[16], rbuf[16];
             const unsigned long hz = (unsigned long)(m->actual_hz + 0.5);
             const unsigned long rf = (unsigned long)lcr_nominal_rf[m->range_index];
             if (hz >= 1000ul) (void)snprintf(fbuf, sizeof(fbuf), "%luKHz", hz / 1000ul);
