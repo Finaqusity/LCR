@@ -5,8 +5,8 @@
 
 static const double tau = 6.283185307179586476925286766559;
 const lcr_frequency lcr_frequencies[4] = {
-    {100u, 52500u, 128u}, {1000u, 5250u, 1024u},
-    {10000u, 525u, 1024u}, {100000u, 70u, 1200u}
+    {100u, 52500u, 128u}, {1000u, 5250u, 8192u},
+    {10000u, 525u, 4096u}, {100000u, 70u, 1200u}
 };
 /* Range relay masks, indexed 10R, 100R, 1K, 10K, 100K, 1M.
  * Bit n = PDn, high = relay energized (break-before-make; K78 cal = PD6).

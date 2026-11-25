@@ -4,8 +4,8 @@
 
 /* RM0090: dual regular simultaneous, DMA access mode 2, TIM2_TRGO.
  * V1 = PC0 (ADC1_IN10), V2 = PA1 (ADC2_IN1); PA0 is the WK_UP key input. */
-static uint32_t dma_words[1200] __attribute__((section(".dma_buffer"), aligned(4)));
-static uint16_t cpu_pairs[2400];
+static uint32_t dma_words[8192] __attribute__((section(".dma_buffer"), aligned(4)));
+static uint16_t cpu_pairs[16384];
 static volatile int completed;
 static size_t expected_pairs;
 static uint32_t capture_token;
@@ -31,7 +31,7 @@ void lcr_board_capture_cancel(void *context) {
 
 int lcr_board_capture_start(void *context, unsigned frequency, unsigned range, size_t count, uint32_t token) {
     (void)context; (void)range;
-    if (frequency >= 4u || count != lcr_frequencies[frequency].sample_pairs || count > 1200u || !token) return 0;
+    if (frequency >= 4u || count == 0u || count > lcr_frequencies[frequency].sample_pairs || !token) return 0;
     lcr_board_capture_cancel(0);
     if (DMA2_Stream0->CR & DMA_SxCR_EN) return 0;
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOCEN;

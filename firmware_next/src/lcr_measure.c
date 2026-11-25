@@ -1,4 +1,4 @@
-#include "lcr_measure.h"
+﻿#include "lcr_measure.h"
 #include "lcr_config.h"
 
 #include <math.h>
@@ -88,7 +88,7 @@ static lcr_status process(const uint16_t *pairs, size_t count,
     lcr_status status = lcr_measure_config_check(config);
     if (status != LCR_OK || !pairs) return LCR_BAD_INPUT;
     const lcr_frequency *frequency = &lcr_frequencies[config->frequency_index];
-    if (count != frequency->sample_pairs) return LCR_BAD_INPUT;
+    if (count < 8u || count > frequency->sample_pairs) return LCR_BAD_INPUT;
     out->frequency_index = config->frequency_index;
     out->range_index = config->range_index;
     out->actual_hz = config->hse_hz * lcr_dds_word(frequency->nominal_hz) / 268435456.0;
@@ -167,3 +167,4 @@ lcr_range_choice lcr_choose_range(const lcr_measurement *frame, uint8_t visited)
     choice.next_range = (unsigned)next;
     return choice;
 }
+

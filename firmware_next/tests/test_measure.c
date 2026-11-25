@@ -1,4 +1,4 @@
-#include "lcr_measure.h"
+﻿#include "lcr_measure.h"
 
 #include <assert.h>
 #include <math.h>
@@ -6,7 +6,7 @@
 #include <string.h>
 
 static const double tau = 6.283185307179586476925286766559;
-static uint16_t samples[2400];
+static uint16_t samples[16384];
 
 static lcr_complex mul(lcr_complex a, lcr_complex b) {
     const lcr_complex z = {a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
@@ -144,7 +144,7 @@ int main(void) {
     assert(fabs(result.parameters.cs_f / c0 - 1.0 / 1.00002) < 1e-12);
     assert(nominal_c > 0.0);
     config.calibration = &cal;
-    assert(lcr_measure_frame(samples, 1199u, &config, &result) == LCR_BAD_INPUT && !result.valid);
+    assert(lcr_measure_frame(samples, 4u, &config, &result) == LCR_BAD_INPUT && !result.valid);
     cal.range_index = 3u;
     assert(lcr_measure_frame(samples, 1200u, &config, &result) == LCR_BAD_INPUT && !result.valid);
     cal.range_index = 2u; cal.alpha.re = NAN;
@@ -161,3 +161,5 @@ int main(void) {
     printf("lcr_measure: %u R/L/C frames, equivalent models, calibration and invalidation passed\n", cases);
     return 0;
 }
+
+

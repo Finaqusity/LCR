@@ -1,4 +1,4 @@
-﻿#include "lcr_app.h"
+#include "lcr_app.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,7 +14,7 @@ typedef struct {
 } simulator;
 static lcr_app app;
 static lcr_cal_profile profile,baseline;
-static uint16_t samples[2400];
+static uint16_t samples[16384];
 static int mute_io(void *ctx,int muted) { ((simulator*)ctx)->muted=(unsigned)muted;return 1; }
 static void relays_io(void *ctx,uint8_t mask) { simulator*s=ctx;assert(s->muted && !s->active);s->mask=mask; }
 static int frequency_io(void *ctx,uint32_t hz) { simulator*s=ctx;assert(s->muted && !s->active);(void)hz;return 1; }

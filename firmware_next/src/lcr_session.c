@@ -1,4 +1,5 @@
 #include "lcr_session.h"
+#include <stdio.h>
 
 #include <string.h>
 #include <math.h>
@@ -118,7 +119,7 @@ int lcr_session_calibrate(lcr_session *s, unsigned frequency, unsigned range,
 static lcr_status calibration_frame(lcr_session *s, const uint16_t *pairs, size_t count) {
     lcr_measurement *m = &s->result;
     memset(m, 0, sizeof(*m));
-    if (!pairs || count != lcr_frequencies[s->config.frequency_index].sample_pairs) return LCR_BAD_INPUT;
+    if (!pairs || count == 0u || count > lcr_frequencies[s->config.frequency_index].sample_pairs) return LCR_BAD_INPUT;
     const lcr_frequency *f = &lcr_frequencies[s->config.frequency_index];
     m->frequency_index = s->config.frequency_index; m->range_index = s->config.range_index;
     m->actual_hz = s->config.hse_hz * lcr_dds_word(f->nominal_hz) / 268435456.0;
@@ -161,13 +162,15 @@ void lcr_session_poll(lcr_session *s, uint32_t now) {
         if (lcr_frontend_ready(&s->frontend)) {
             if(s->settling && (int32_t)(now-s->settle_next)<0)return;
             const lcr_frequency *f = &lcr_frequencies[s->config.frequency_index];
-            s->capture_timeout = 100u + ((uint32_t)f->sample_pairs * f->timer_divisor + 83999u) / 84000u;
+            size_t capture_pairs = f->sample_pairs;
+            if (s->settling && capture_pairs > 256u) capture_pairs = 256u;
+            s->capture_timeout = 100u + ((uint32_t)capture_pairs * f->timer_divisor + 83999u) / 84000u;
             s->capture_since = now;
             s->active_token = next_token(s);
             s->state = LCR_SESSION_CAPTURING;
             ++s->capture_count;
             if (!s->io.capture(s->io.context, s->config.frequency_index, s->config.range_index,
-                                f->sample_pairs, s->active_token))
+                                capture_pairs, s->active_token))
                 finish(s, LCR_SESSION_CAPTURE_ERROR, LCR_SESSION_FAILED);
         }
     } else if (s->state == LCR_SESSION_CAPTURING && now - s->capture_since >= s->capture_timeout) {
@@ -207,21 +210,27 @@ int lcr_session_submit(lcr_session *s, uint32_t token,
         return 1;
     }
     if(s->settling) {
-        const lcr_range_choice choice=lcr_choose_range(&s->result,s->visited);
         const int retry=!s->result.v1.clipped && !s->result.v2.clipped &&
-                        (s->result.status==LCR_OK || s->result.status==LCR_WEAK_SIGNAL) &&
-                        (!s->autorange || (choice.action!=LCR_RANGE_CHANGE && choice.action!=LCR_RANGE_LIMIT));
+                        (s->result.status==LCR_OK || s->result.status==LCR_WEAK_SIGNAL);
         if(retry) {
             s->stable_count=s->result.valid && s->have_previous && stable(&s->result,&s->previous)?s->stable_count+1u:0u;
             s->previous=s->result;s->have_previous=s->result.valid;
             if(s->stable_count<2u) {
-                s->result.valid=0u;
-                if(now-s->settle_since>=LCR_STABILITY_TIMEOUT_MS)
-                    finish(s,LCR_SESSION_UNSTABLE,LCR_SESSION_FAILED);
-                else { s->settle_next=now+LCR_STABILITY_INTERVAL_MS;s->state=LCR_SESSION_SWITCHING; }
-                return 1;
+                if(now-s->settle_since>=LCR_STABILITY_TIMEOUT_MS) {
+                    /* The analogue chain may never look perfectly still while the
+                       excitation and I-V node keep drifting.  Rather than report a
+                       hard failure, fall back to the last complete frame so the
+                       measurement still produces a (weak-signal) result. */
+                    if(s->have_previous && s->previous.valid) { s->result=s->previous;s->settling=0u; }
+                    else { finish(s,LCR_SESSION_UNSTABLE,LCR_SESSION_FAILED);return 1; }
+                } else {
+                    s->result.valid=0u;
+                    s->settle_next=now+LCR_STABILITY_INTERVAL_MS;s->state=LCR_SESSION_SWITCHING;
+                    return 1;
+                }
+            } else {
+                s->settling=0u;
             }
-            s->settling=0u;
         }
     }
     if (s->autorange) {

@@ -1,4 +1,4 @@
-#include "lcr_session.h"
+﻿#include "lcr_session.h"
 
 #include <assert.h>
 #include <math.h>
@@ -13,7 +13,7 @@ typedef struct {
     lcr_complex dut;
     lcr_calibration cal;
 } simulator;
-static uint16_t samples[2400];
+static uint16_t samples[16384];
 
 static int mute_io(void *context, int muted) {
     simulator *sim = context;
@@ -223,3 +223,4 @@ int main(void) {
            cases, reactive_cases);
     return 0;
 }
+

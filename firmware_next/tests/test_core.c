@@ -1,10 +1,10 @@
-#include "lcr_core.h"
+﻿#include "lcr_core.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 
-static uint16_t a[1200], b[1200], interleaved[2400];
+static uint16_t a[8192], b[8192], interleaved[16384];
 
 static void waveform(uint16_t *buffer, unsigned count, double omega,
                      double re, double im, double dc) {
@@ -93,3 +93,4 @@ int main(void) {
     puts("lcr_core: all C tests passed");
     return 0;
 }
+
