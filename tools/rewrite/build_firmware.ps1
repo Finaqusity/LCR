@@ -1,4 +1,4 @@
-param([string]$Toolchain='D:\Tools\embedded\arm-gcc-14.2\bin',[switch]$WaveTest)
+param([string]$Toolchain='D:\Tools\embedded\arm-gcc-14.2\bin',[switch]$WaveTest,[switch]$Ad9833)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $sourceRoot=Join-Path $projectRoot 'firmware_next'
@@ -17,7 +17,10 @@ $flags=@('-mcpu=cortex-m4','-mthumb','-mfpu=fpv4-sp-d16','-mfloat-abi=hard','-st
 if($WaveTest){
     $flags+=@('-DLCR_WAVE_TEST=1')
 }
-$name=if($WaveTest){'lcr-wave'}else{'lcr-next'}
+if($Ad9833){
+    $flags+=@('-DLCR_EXCITATION_DAC=0u')
+}
+$name=if($WaveTest){'lcr-wave'}elseif($Ad9833){'lcr-ad9833'}else{'lcr-next'}
 $objects=@()
 foreach($directory in @('src','platform')) {
     foreach($source in Get-ChildItem (Join-Path $sourceRoot $directory) -Filter '*.c' -File) {

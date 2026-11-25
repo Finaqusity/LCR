@@ -153,6 +153,11 @@ int main(void) {
     assert(lcr_measure_frame(samples, 1200u, &config, &result) == LCR_OK);
     cal.flags = 8u;
     assert(lcr_measure_frame(samples, 1200u, &config, &result) == LCR_BAD_INPUT);
+    /* Missing excitation: a flat V1 must be rejected before any result. */
+    for (unsigned i = 0u; i < sizeof(samples) / sizeof(samples[0]); ++i) samples[i] = 2048u;
+    const lcr_measure_config flat = {1u, 2u, 8000000.0, 0};
+    assert(lcr_measure_frame(samples, lcr_frequencies[1].sample_pairs, &flat, &result) == LCR_NO_EXCITATION);
+    assert(!result.valid);
     printf("lcr_measure: %u R/L/C frames, equivalent models, calibration and invalidation passed\n", cases);
     return 0;
 }

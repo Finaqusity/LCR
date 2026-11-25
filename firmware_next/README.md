@@ -31,6 +31,19 @@
 - **100 kHz 需要 5.6 MSPS 更新率，超出 DAC 可用范围**：寄存器仍按 100 kHz 配置，但输出会明显衰减/失真，当前版本只承诺 100 Hz / 1 kHz / 10 kHz。
 - 顶层仍调用 `lcr_board_dds_frequency()` / `lcr_board_dds_mute()`，测量、校准与拟合逻辑完全未改。
 
+### 激励后端选择（DAC / AD9833）
+
+- 默认 `LCR_EXCITATION_DAC=1`：内部 DAC1(PA4) + TIM6 + DMA，构建并烧录 `lcr-next.hex`。
+- 若恢复外部 AD9833：FSYNC=PA4、SCLK=PA5、MOSI=PA7、MCLK=PA8（MCO1 8 MHz）；此时 PA4 必须从 C1 断开。
+  执行 `tools\rewrite\build_firmware.ps1 -Ad9833` 构建 `lcr-ad9833.hex` 并烧录该镜像。
+- 两种后端共用 `lcr_board_dds_frequency()` / `lcr_board_dds_mute()`，测量与校准代码不变。
+
+## 无激励保护
+
+- 每帧测量在拟合后先检查 V1 基波峰值；低于 `LCR_EXCITATION_MIN_PEAK_CODES`（默认 25 码，约 20 mV 峰值）时
+  判为“无激励”，进入 `LCR STATUS` 提示页（`NO EXCITATION` / `CHECK TP1 / DRIVE`），**不显示测量数值**。
+- 阈值在 `include/lcr_config.h`；改变激励电平或前端增益后需重新评估该阈值。
+
 ## 模块
 
 | 模块 | 作用 |
@@ -57,6 +70,8 @@
 powershell -ExecutionPolicy Bypass -File tools/rewrite/check_host.ps1
 powershell -ExecutionPolicy Bypass -File tools/rewrite/check_core.ps1
 powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1
+# 外部 AD9833 后端（恢复芯片时）：
+powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1 -Ad9833
 ```
 
 `check_host.ps1` 使用本机 MSVC/Windows SDK 编译并执行 9 个主机测试，可通过 `-VsRoot` 和 `-WindowsSdkRoot` 覆盖路径，测试断言保持开启。`check_core.ps1` 使用 ARMCLANG 6.7 和 Keil CMSIS 5.0.1 核心头做逐源目标编译（未修改厂家文件）。`build_firmware.ps1` 默认使用 `D:\Tools\embedded\arm-gcc-14.2\bin`，可用 `-Toolchain` 指定其他 GNU 工具链 bin 目录；产物在 `firmware_next/build-target/`，与旧工程的 `firmware/build/` 分开。
@@ -85,6 +100,7 @@ python -m pyocd flash -t stm32f407vgtx --erase sector firmware_next/build-target
 - OLED 正向与 180°映射（8192 像素）均通过检查，界面预览取自 C 帧缓冲。
 - 板级启动、时钟、单键、量程继电器、ADC/DMA 采集与 DAC 激励已在 ST-Link + 实物开发板上执行；I²C/OLED、Flash 保存与测量精度仍缺实物证据。完整链接、代码尺寸和最终内存预算已可复现，但尚未做长期稳定性测试。
 - 激励 100 kHz 仅做了寄存器配置，DAC 更新率不足（5.6 MSPS），当前不作为可用档位。
+- 无激励保护：主机测试覆盖平信号被拒（`LCR_NO_EXCITATION`）；实物上断开激励时应显示 `NO EXCITATION` 提示页。
 - 物理短路校准保持禁用；开路补偿默认假定 Zs=0，不能称开路+短路校准已完成。
 - 标准件校准用屏幕指定的标称电阻值；其误差、反馈模型适用性、噪声及模拟工作点需要实测。
 - Flash 测试使用 NOR 模型，不能代替真实掉电、供电电压和寿命测试。保存只允许在停采集、激励软件状态静音后执行。

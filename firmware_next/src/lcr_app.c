@@ -277,7 +277,9 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
         } else if (a->scan && a->session.error == LCR_SESSION_RANGE_LIMIT && a->have_best) {
             a->scan=0u; a->last=a->best; a->active_frequency=a->last.frequency_index;
             a->active_range=a->last.range_index; a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u; a->dirty=1u;
-        } else message(a,"MEASUREMENT FAILED",a->calibration?"PREVIOUS CAL RETAINED":"CHECK LOAD / SIGNAL");
+        } else if (a->session.error == LCR_SESSION_NO_EXCITATION)
+            message(a,"NO EXCITATION","CHECK TP1 / DRIVE");
+        else message(a,"MEASUREMENT FAILED",a->calibration?"PREVIOUS CAL RETAINED":"CHECK LOAD / SIGNAL");
     }
     if (!active(a) && (int32_t)(now-a->next_start)>=0 && a->session.state != LCR_SESSION_DONE) {
         if (a->page==LCR_PAGE_CAL && a->calibration) {

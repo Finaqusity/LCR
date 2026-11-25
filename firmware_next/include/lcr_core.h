@@ -11,7 +11,8 @@ typedef enum {
     LCR_BAD_INPUT,
     LCR_SINGULAR,
     LCR_CLIPPED,
-    LCR_WEAK_SIGNAL
+    LCR_WEAK_SIGNAL,
+    LCR_NO_EXCITATION
 } lcr_status;
 
 typedef struct {

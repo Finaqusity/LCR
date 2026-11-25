@@ -55,10 +55,16 @@ static void early_gpio(void) {
     GPIOD->MODER = (GPIOD->MODER & ~0xffffu) | 0x5555u;
     GPIOC->BSRR = 1u << 13; /* LED off. */
     mode(GPIOC, 13u, 1u);
-    /* PA4 is now the DAC output (AD9833 removed, PA4 wired to the C1 chip-side
+#if LCR_EXCITATION_DAC
+    /* PA4 is the DAC output (AD9833 removed, PA4 wired to the C1 chip-side
        node).  Keep it analog from the first instruction; PA5/PA7 stay as
        reset-default inputs because the SPI link is gone. */
     mode(GPIOA, 4u, 3u);
+#else
+    /* PA4 is the AD9833 FSYNC line: idle high, push-pull output. */
+    GPIOA->BSRR = 1u << 4;
+    mode(GPIOA, 4u, 1u);
+#endif
     key_init(); /* WK_UP key first; PA0 must stay an input, V1 sampled on PC0. */
     __DSB();
 }
@@ -164,6 +170,7 @@ void USART1_IRQHandler(void) {
     }
 }
 
+#if LCR_EXCITATION_DAC
 /* Excitation: 12-bit DAC1 on PA4, TIM6 update trigger, DMA1 Stream5 channel 7
  * playing a 56-entry sine table in circular mode.  This replaces the AD9833
  * that was removed from the board; PA4 was re-wired to the old AD9833 VOUT
@@ -256,6 +263,67 @@ static int mute_callback(void *context, int muted) {
     return 1;
 }
 
+
+#else /* LCR_EXCITATION_DAC == 0: external AD9833 over SPI1. */
+
+static void spi_init(void) {
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+    (void)RCC->APB2ENR;
+    SPI1->CR1 = 0u;
+    SPI1->CR2 = 0u;
+    /* Mode 2, MSB, 16-bit, /16 = 5.25MHz, one-line transmit avoids RX overrun. */
+    SPI1->CR1 = SPI_CR1_CPOL | SPI_CR1_MSTR | (3u << 3) | SPI_CR1_SSM |
+                SPI_CR1_SSI | SPI_CR1_DFF | SPI_CR1_BIDIMODE | SPI_CR1_BIDIOE;
+    GPIOA->OSPEEDR = (GPIOA->OSPEEDR & ~((3u << 10) | (3u << 14))) |
+                       (2u << 10) | (2u << 14);
+    alternate(GPIOA, 5u, 5u);
+    alternate(GPIOA, 7u, 5u);
+    SPI1->CR1 |= SPI_CR1_SPE;
+}
+
+static void cs_delay(void) {
+    /* Minimum 32 core cycles (>190ns at 168MHz), above DDS setup/hold minima. */
+    for (unsigned i = 0u; i < 32u; ++i) __NOP();
+}
+
+static int dds_write(uint16_t word) {
+    if (!wait_mask(&SPI1->SR, SPI_SR_TXE, SPI_SR_TXE)) {
+        dds_initialized = 0;
+        return 0;
+    }
+    GPIOA->BSRR = 1u << (4u + 16u);
+    cs_delay();
+    SPI1->DR = word;
+    const int ok = wait_mask(&SPI1->SR, SPI_SR_TXE, SPI_SR_TXE) &&
+                   wait_mask(&SPI1->SR, SPI_SR_BSY, 0u);
+    cs_delay();
+    GPIOA->BSRR = 1u << 4;
+    cs_delay();
+    if (!ok) dds_initialized = 0;
+    return ok;
+}
+
+int lcr_board_dds_frequency(uint32_t hz) {
+    const uint32_t word = lcr_dds_word(hz);
+    if (!dds_initialized || !dds_muted || !word) return 0;
+    /* Both halves address FREQ0. RESET remains set until the sequencer unmutes. */
+    if (!dds_write(0x2100u) ||
+        !dds_write((uint16_t)(0x4000u | (word & 0x3fffu))) ||
+        !dds_write((uint16_t)(0x4000u | ((word >> 14) & 0x3fffu)))) {
+        dds_initialized = 0;
+        return 0;
+    }
+    return 1;
+}
+
+static int mute_callback(void *context, int muted) {
+    (void)context;
+    if (!dds_initialized || !dds_write((uint16_t)(muted ? 0x2100u : 0x2000u))) return 0;
+    dds_muted = muted;
+    return 1;
+}
+#endif /* LCR_EXCITATION_DAC */
+
 static void relay_callback(void *context, uint8_t mask) {
     (void)context;
     const uint32_t outputs = mask & 0xffu;
@@ -274,8 +342,15 @@ int lcr_board_init(void) {
     if (!clock_init()) return 0;
     if (SysTick_Config(SystemCoreClock / 1000u)) return 0;
     uart_init();
+#if LCR_EXCITATION_DAC
     if (!dac_init()) return 0;
+#else
+    spi_init();
+#endif
     delay_ms(20u);
+#if !LCR_EXCITATION_DAC
+    if (!dds_write(0x2100u)) return 0; /* Hold RESET until unmuted. */
+#endif
     dds_initialized = 1;
     dds_muted = 1;
     return lcr_board_dds_frequency(1000u);

@@ -1,4 +1,5 @@
 #include "lcr_measure.h"
+#include "lcr_config.h"
 
 #include <math.h>
 #include <string.h>
@@ -96,6 +97,9 @@ static lcr_status process(const uint16_t *pairs, size_t count,
     if (status != LCR_OK) return status;
     status = lcr_fit_adc(pairs + 1, count, 2u, omega, &out->v2);
     if (status != LCR_OK) return status;
+    /* V1 monitors the source: with no excitation there is nothing to show. */
+    if (hypot(out->v1.phasor.re, out->v1.phasor.im) < LCR_EXCITATION_MIN_PEAK_CODES)
+        return LCR_NO_EXCITATION;
     double rf = lcr_nominal_rf[config->range_index], cf = 0.0;
     lcr_complex alpha = {1.0, 0.0}, zf;
     const lcr_calibration *cal = config->calibration;

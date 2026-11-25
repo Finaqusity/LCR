@@ -124,6 +124,8 @@ static lcr_status calibration_frame(lcr_session *s, const uint16_t *pairs, size_
     m->actual_hz = s->config.hse_hz * lcr_dds_word(f->nominal_hz) / 268435456.0;
     lcr_status status = lcr_fit_adc(pairs, count, 2u, lcr_sample_omega(f), &m->v1);
     if (status != LCR_OK) return status;
+    if (hypot(m->v1.phasor.re, m->v1.phasor.im) < LCR_EXCITATION_MIN_PEAK_CODES)
+        return LCR_NO_EXCITATION;
     status = lcr_fit_adc(pairs + 1u, count, 2u, lcr_sample_omega(f), &m->v2);
     if (status != LCR_OK) return status;
     const lcr_complex one = {1.0,0.0}, negative_one = {-1.0,0.0};
@@ -199,6 +201,10 @@ int lcr_session_submit(lcr_session *s, uint32_t token,
     else {
         s->result.status = calibration_frame(s, pairs, count);
         s->result.valid = s->result.status == LCR_OK;
+    }
+    if (s->result.status == LCR_NO_EXCITATION) {
+        finish(s, LCR_SESSION_NO_EXCITATION, LCR_SESSION_FAILED);
+        return 1;
     }
     if(s->settling) {
         const lcr_range_choice choice=lcr_choose_range(&s->result,s->visited);

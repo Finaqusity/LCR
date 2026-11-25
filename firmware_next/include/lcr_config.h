@@ -16,6 +16,19 @@
 #define LCR_KEY_LONG_MS 800u
 #define LCR_KEY_DOUBLE_MS 300u
 
+/* Excitation source. 1 = internal DAC1 (PA4), as on the current board where
+ * the AD9833 was removed. 0 = external AD9833 over SPI1 (PA4=FSYNC, PA5=SCLK,
+ * PA7=MOSI, MCLK from PA8/MCO1).  Build with -DLCR_EXCITATION_DAC=0 or with
+ * tools/rewrite/build_firmware.ps1 -Ad9833 to select that backend. */
+#ifndef LCR_EXCITATION_DAC
+#define LCR_EXCITATION_DAC 1u
+#endif
+
+/* Excitation-presence gate: if the V1 fundamental peak is below this many ADC
+ * codes (25 codes is about 20 mV peak at the V1 pin), reject the measurement as
+ * "no excitation" instead of showing a result. */
+#define LCR_EXCITATION_MIN_PEAK_CODES 25.0
+
 #define LCR_FIXTURE_ID 1u
 #define LCR_DEFAULT_HSE_HZ 8000000.0
 
