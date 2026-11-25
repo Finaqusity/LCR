@@ -16,7 +16,7 @@
 #define LCR_KEY_LONG_MS 800u
 #define LCR_KEY_DOUBLE_MS 300u
 
-/* Excitation source. 1 = internal DAC1 (PA4), as on the current board where
+/* Excitation source. 1 = internal DAC1 channel 2 (PA5; PA4 is shorted to GND
  * the AD9833 was removed. 0 = external AD9833 over SPI1 (PA4=FSYNC, PA5=SCLK,
  * PA7=MOSI, MCLK from PA8/MCO1).  Build with -DLCR_EXCITATION_DAC=0 or with
  * tools/rewrite/build_firmware.ps1 -Ad9833 to select that backend. */

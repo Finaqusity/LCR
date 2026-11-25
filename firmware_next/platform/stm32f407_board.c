@@ -56,10 +56,15 @@ static void early_gpio(void) {
     GPIOC->BSRR = 1u << 13; /* LED off. */
     mode(GPIOC, 13u, 1u);
 #if LCR_EXCITATION_DAC
-    /* PA4 is the DAC output (AD9833 removed, PA4 wired to the C1 chip-side
-       node).  Keep it analog from the first instruction; PA5/PA7 stay as
-       reset-default inputs because the SPI link is gone. */
-    mode(GPIOA, 4u, 3u);
+    /* DAC channel 1 (PA4) is unusable: PA4 measures 0 ohm to GND on this core
+       board (it doubles as the onboard SPI-flash chip-select net).  Drive the
+       excitation with DAC channel 2 on PA5, wired to the C1 chip-side node.
+       PA4 stays a reset-default input: never drive a shorted pin.  PA7 is the
+       flash MOSI line; hold it low so that a permanently selected flash (CS
+       shorted low) only ever sees 0x00 while PA5 toggles its SCK input. */
+    mode(GPIOA, 5u, 3u);
+    GPIOA->BSRR = 1u << (7u + 16u);
+    mode(GPIOA, 7u, 1u);
 #else
     /* PA4 is the AD9833 FSYNC line: idle high, push-pull output. */
     GPIOA->BSRR = 1u << 4;
@@ -101,14 +106,20 @@ static int clock_init(void) {
     RCC->PLLCFGR = 8u | (336u << 6) | RCC_PLLCFGR_PLLSRC_HSE | (7u << 24);
     RCC->CFGR = (RCC->CFGR & ~(RCC_CFGR_HPRE | RCC_CFGR_PPRE1 | RCC_CFGR_PPRE2 |
                                RCC_CFGR_MCO1 | RCC_CFGR_MCO1PRE)) |
-                RCC_CFGR_PPRE1_DIV4 | RCC_CFGR_PPRE2_DIV2 | RCC_CFGR_MCO1_1;
+                RCC_CFGR_PPRE1_DIV4 | RCC_CFGR_PPRE2_DIV2;
+#if !LCR_EXCITATION_DAC
+    /* External AD9833 backend needs MCO1 = HSE, /1 = 8 MHz on PA8. */
+    RCC->CFGR |= RCC_CFGR_MCO1_1;
+#endif
     RCC->CR |= RCC_CR_PLLON;
     if (!wait_mask(&RCC->CR, RCC_CR_PLLRDY, RCC_CR_PLLRDY)) return 0;
     RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_PLL;
     if (!wait_mask(&RCC->CFGR, RCC_CFGR_SWS, RCC_CFGR_SWS_PLL)) return 0;
     SystemCoreClock = 168000000u;
+#if !LCR_EXCITATION_DAC
     GPIOA->OSPEEDR = (GPIOA->OSPEEDR & ~(3u << 16)) | (3u << 16);
     alternate(GPIOA, 8u, 0u); /* MCO1 = HSE, /1 = DDS 8 MHz. */
+#endif
     return 1;
 }
 
@@ -171,10 +182,12 @@ void USART1_IRQHandler(void) {
 }
 
 #if LCR_EXCITATION_DAC
-/* Excitation: 12-bit DAC1 on PA4, TIM6 update trigger, DMA1 Stream5 channel 7
- * playing a 56-entry sine table in circular mode.  This replaces the AD9833
- * that was removed from the board; PA4 was re-wired to the old AD9833 VOUT
- * node (chip side of C1).
+/* Excitation: 12-bit DAC1 channel 2 on PA5, TIM6 update trigger, DMA1 Stream6
+ * channel 7 playing a 56-entry sine table in circular mode.  This replaces the
+ * AD9833 that was removed from the board; PA5 is wired to the old AD9833 VOUT
+ * node (chip side of C1).  PA4 is unusable on this core board: it measures
+ * 0 ohm to GND (it is also the onboard SPI-flash chip-select net), so it is
+ * left as a reset-default input and never driven.
  *
  * Update rate = 56 * f0, so the TIM6 divider is 84e6 / (56 * f0) = 1500000/f0.
  * That is exact for 100 Hz / 1 kHz / 10 kHz, which keeps the DAC tone and the
@@ -195,27 +208,28 @@ static const uint16_t dac_sine[DAC_LUT_LEN] = {
     1785u, 1816u, 1850u, 1887u, 1925u, 1965u, 2006u,
 };
 
-static void dma1_stream5_reset(void) {
-    DMA1_Stream5->CR = 0u;
-    while (DMA1_Stream5->CR & DMA_SxCR_EN) { }
-    /* Clear stream 5 flags (FEIF/DMEIF/TEIF/HTIF/TCIF at bits 6..10). */
-    DMA1->HIFCR = 0x7c0u;
+static void dma1_stream6_reset(void) {
+    DMA1_Stream6->CR = 0u;
+    while (DMA1_Stream6->CR & DMA_SxCR_EN) { }
+    /* Clear stream 6 flags in HIFCR (CFEIF6/CDMEIF6/CTEIF6/CHTIF6/CTCIF6). */
+    DMA1->HIFCR = DMA_HIFCR_CFEIF6 | DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CTEIF6 |
+                  DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6;
 }
 
 static void dac_mute_output(int muted) {
     if (muted) {
         TIM6->CR1 &= ~TIM_CR1_CEN;
-        dma1_stream5_reset();
-        DAC->DHR12R1 = DAC_LUT_MID; /* Constant mid-scale on the DAC pin. */
+        dma1_stream6_reset();
+        DAC->DHR12R2 = DAC_LUT_MID; /* Constant mid-scale on the DAC pin. */
     } else {
-        dma1_stream5_reset();
-        DMA1_Stream5->PAR = (uint32_t)&DAC->DHR12R1;
-        DMA1_Stream5->M0AR = (uint32_t)dac_sine;
-        DMA1_Stream5->NDTR = DAC_LUT_LEN;
-        DMA1_Stream5->CR = (7u << 25) /* Channel 7 = DAC1. */ |
+        dma1_stream6_reset();
+        DMA1_Stream6->PAR = (uint32_t)&DAC->DHR12R2;
+        DMA1_Stream6->M0AR = (uint32_t)dac_sine;
+        DMA1_Stream6->NDTR = DAC_LUT_LEN;
+        DMA1_Stream6->CR = (7u << 25) /* Channel 7 = DAC1 (channels share it). */ |
                            DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 |
                            DMA_SxCR_MINC | DMA_SxCR_CIRC | DMA_SxCR_DIR_0;
-        DMA1_Stream5->CR |= DMA_SxCR_EN;
+        DMA1_Stream6->CR |= DMA_SxCR_EN;
         TIM6->CNT = 0u;
         TIM6->CR1 |= TIM_CR1_CEN;
     }
@@ -227,19 +241,19 @@ static int dac_init(void) {
     RCC->APB1ENR |= RCC_APB1ENR_DACEN | RCC_APB1ENR_TIM6EN;
     (void)RCC->AHB1ENR;
     (void)RCC->APB1ENR;
-    mode(GPIOA, 4u, 3u);        /* PA4: analog, DAC_OUT1. */
-    GPIOA->PUPDR &= ~(3u << 8); /* No pull-up/pull-down on PA4. */
+    mode(GPIOA, 5u, 3u);         /* PA5: analog, DAC_OUT2. */
+    GPIOA->PUPDR &= ~(3u << 10); /* No pull-up/pull-down on PA5. */
     TIM6->CR1 = 0u;
     TIM6->CR2 = TIM_CR2_MMS_1; /* Update event drives DAC TRGO. */
     TIM6->PSC = 0u;
     TIM6->ARR = 1499u;         /* 84MHz / (56 * 1kHz) - 1 = 1499. */
     TIM6->EGR = TIM_EGR_UG;
     TIM6->SR = 0u;
-    /* TSEL1 = 000 selects TIM6 TRGO (RM0090 DAC trigger table). */
-    DAC->CR = DAC_CR_TEN1 | DAC_CR_DMAEN1;
-    DAC->DHR12R1 = DAC_LUT_MID;
-    DAC->CR |= DAC_CR_EN1;
-    dma1_stream5_reset();
+    /* TSEL2 = 000 selects TIM6 TRGO (RM0090 DAC trigger table). */
+    DAC->CR = DAC_CR_TEN2 | DAC_CR_DMAEN2;
+    DAC->DHR12R2 = DAC_LUT_MID;
+    DAC->CR |= DAC_CR_EN2;
+    dma1_stream6_reset();
     return 1;
 }
 

@@ -25,15 +25,15 @@
 
 ## 激励源：内部 DAC（AD9833 已失效移除）
 
-- 原 AD9833 的 MCLK 通路实测未到芯片、VOUT 恒 0 V（CAP=2.49 V 正常），芯片已从板上移除；**PA4 改接到原 AD9833 VOUT 节点（C1 靠芯片侧）**，由 STM32 内部 DAC1 产生激励。
-- 激励实现：56 点正弦表（2048±372，约 0.6 Vpp）经 **TIM6 更新事件 + DMA1 Stream5 通道 7 循环** 送到 DAC1；更新率 = 56×f0，TIM6 分频 = 84 MHz/(56·f0) = 1500000/f0，因此 100 Hz / 1 kHz / 10 kHz 三档频率与 ADC 采样时钟（fs = 16·f0）**精确相干**。
+- 原 AD9833 的 MCLK 通路实测未到芯片、VOUT 恒 0 V（CAP=2.49 V 正常），芯片已从板上移除；**PA5（DAC 通道 2）接到原 AD9833 VOUT 节点（C1 靠芯片侧）**，由 STM32 内部 DAC1 通道 2 产生激励；PA4 在本核心板上对地 0 Ω（兼作板载 SPI Flash 片选网络）不可用，固件保持其为输入、不驱动。
+- 激励实现：56 点正弦表（2048±372，约 0.6 Vpp）经 **TIM6 更新事件 + DMA1 Stream6 通道 7 循环** 送到 DAC1；更新率 = 56×f0，TIM6 分频 = 84 MHz/(56·f0) = 1500000/f0，因此 100 Hz / 1 kHz / 10 kHz 三档频率与 ADC 采样时钟（fs = 16·f0）**精确相干**。
 - 静音时 TIM6 停止、DAC 输出中值 1.65 V（经 C1 隔直后对 AFE 无影响）；开始测量时启动，测量结束恢复静音。静音期间修改频率只更新 TIM6 ARR，下一次 begin 才启动波形。
 - **100 kHz 需要 5.6 MSPS 更新率，超出 DAC 可用范围**：寄存器仍按 100 kHz 配置，但输出会明显衰减/失真，当前版本只承诺 100 Hz / 1 kHz / 10 kHz。
 - 顶层仍调用 `lcr_board_dds_frequency()` / `lcr_board_dds_mute()`，测量、校准与拟合逻辑完全未改。
 
 ### 激励后端选择（DAC / AD9833）
 
-- 默认 `LCR_EXCITATION_DAC=1`：内部 DAC1(PA4) + TIM6 + DMA，构建并烧录 `lcr-next.hex`。
+- 默认 `LCR_EXCITATION_DAC=1`：内部 DAC1 通道 2(PA5) + TIM6 + DMA，构建并烧录 `lcr-next.hex`。
 - 若恢复外部 AD9833：FSYNC=PA4、SCLK=PA5、MOSI=PA7、MCLK=PA8（MCO1 8 MHz）；此时 PA4 必须从 C1 断开。
   执行 `tools\rewrite\build_firmware.ps1 -Ad9833` 构建 `lcr-ad9833.hex` 并烧录该镜像。
 - 两种后端共用 `lcr_board_dds_frequency()` / `lcr_board_dds_mute()`，测量与校准代码不变。
@@ -80,14 +80,14 @@ powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1 -Ad983
 
 ## TP1 波形自检（模拟前端 bring-up）
 
-用于在示波器上确认激励链（DAC1/PA4 → C1 → OPA2810 → BUF634A → TP1）是否工作。该镜像不启动测量、不吸合任何量程继电器，只保持 1 kHz 连续正弦，同时每 250 ms 采一帧把 V1/V2 幅度/直流/残差写到 `lcr_wave_diag_data`（SWD 可读）：
+用于在示波器上确认激励链（DAC1/PA5 → C1 → OPA2810 → BUF634A → TP1）是否工作。该镜像不启动测量、不吸合任何量程继电器，只保持 1 kHz 连续正弦，同时每 250 ms 采一帧把 V1/V2 幅度/直流/残差写到 `lcr_wave_diag_data`（SWD 可读）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/rewrite/build_firmware.ps1 -WaveTest
 python -m pyocd flash -t stm32f407vgtx --erase sector firmware_next/build-target/lcr-wave.hex
 ```
 
-预期：TP1 上 1 kHz 正弦、约 0.5 Vrms（幅度由 VR1 决定），直流偏置 3.3 V，示波器用 AC 耦合、200 µs/div、10× 探头与通道档位一致。PC13 LED 1 Hz 闪烁；UART 打印 `LCR WAVE TEST: TP1 1 kHz, relays released; ADC diag on`。若 TP1 无波形，先确认 PA4 确已接到 C1 靠芯片侧、AFE 的 +9 V/3.3 VA/VDDA/VREF_AFE 正常，再查 OPA2810/BUF634A 工作点。ADC 侧 V1/V2 必须按 `V1→PC0、V2→PA1、GND 共地` 接线后，`lcr_wave_diag_data` 才会给出有效读数（否则只看到偏置与噪声，status=4/LCR_WEAK_SIGNAL）。
+预期：TP1 上 1 kHz 正弦、约 0.5 Vrms（幅度由 VR1 决定），直流偏置 3.3 V，示波器用 AC 耦合、200 µs/div、10× 探头与通道档位一致。PC13 LED 1 Hz 闪烁；UART 打印 `LCR WAVE TEST: TP1 1 kHz, relays released; ADC diag on`。若 TP1 无波形，先确认 PA5 确已接到 C1 靠芯片侧、AFE 的 +9 V/3.3 VA/VDDA/VREF_AFE 正常，再查 OPA2810/BUF634A 工作点。ADC 侧 V1/V2 必须按 `V1→PC0、V2→PA1、GND 共地` 接线后，`lcr_wave_diag_data` 才会给出有效读数（否则只看到偏置与噪声，status=4/LCR_WEAK_SIGNAL）。
 
 检查完模拟前端后，重新构建普通镜像（不带 `-WaveTest`）并烧回 `lcr-next.hex`。该镜像已在 ST-Link 上验证：`SystemCoreClock=168 MHz`、静音时 `TIM6 ARR=1499/CEN=0`、`DAC CR=0x1005/DOR=2048`（中值）、`dds_muted=1`；测量期间 `TIM6 CEN=1`、DMA1 Stream5 `EN=1` 且 `NDTR` 循环、DAC `DOR` 在正弦表范围内变化、`dds_muted=0`；无 HardFault。
 
