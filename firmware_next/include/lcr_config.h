@@ -47,6 +47,17 @@
 #define LCR_AUTO_START 1u
 #endif
 
+/* Highest frequency index the calibration sweep measures. This core board has
+ * no calibrated 100 kHz excitation today: the original AD9833 is removed and
+ * the internal DAC backend is only coherent up to 10 kHz (100 kHz would need
+ * 5.6 MSPS). Leave that band uncalibrated instead of failing the whole sweep;
+ * it simply keeps nominal alpha/Rf until the path supports 100 kHz. */
+#if LCR_EXCITATION_DAC
+#define LCR_CAL_MAX_FREQUENCY_INDEX 2u
+#else
+#define LCR_CAL_MAX_FREQUENCY_INDEX 3u
+#endif
+
 #define LCR_FIXTURE_ID 1u
 #define LCR_DEFAULT_HSE_HZ 8000000.0
 

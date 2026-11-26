@@ -1,4 +1,5 @@
 #include "lcr_app.h"
+#include "lcr_config.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -139,8 +140,13 @@ int main(void) {
     sim.gain=1.02;sim.phase=0.03;
     cal_start(&sim,2u);cal_finish(&sim);
     for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r) {
-        assert(app.profile.slots[f][r].flags==LCR_CAL_CHANNEL);
-        assert(fabs(app.profile.slots[f][r].alpha.re-sim.gain*cos(sim.phase))<0.002);
+        if(f>LCR_CAL_MAX_FREQUENCY_INDEX) {
+            /* Bands the excitation source cannot drive are left uncalibrated. */
+            assert(app.profile.slots[f][r].flags==0u);
+        } else {
+            assert(app.profile.slots[f][r].flags==LCR_CAL_CHANNEL);
+            assert(fabs(app.profile.slots[f][r].alpha.re-sim.gain*cos(sim.phase))<0.002);
+        }
     }
     for(unsigned i=0u;i<5u;++i)step(&sim);
     assert(!app.last.valid); /* A calibration phasor must not become a DUT result. */
@@ -150,7 +156,7 @@ int main(void) {
     assert(memcmp(&baseline,&app.profile,sizeof(baseline))==0);
     sim.resistance=1e18;sim.cf=50e-12; /* real fixtures carry a few pF of stray capacitance */
     cal_start(&sim,3u);cal_finish(&sim);
-    for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r) {
+    for(unsigned f=0u;f<=LCR_CAL_MAX_FREQUENCY_INDEX;++f)for(unsigned r=0u;r<6u;++r) {
         assert((app.profile.slots[f][r].flags&LCR_CAL_CHANNEL)!=0u);
         if(f!=0u)
             assert((app.profile.slots[f][r].flags&(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE))==(LCR_CAL_CHANNEL|LCR_CAL_FIXTURE));
@@ -161,7 +167,7 @@ int main(void) {
          assert((app.profile.slots[0][r].flags&LCR_CAL_FIXTURE)==f0);}
     sim.resistance=1000.0;sim.cf=1e-9;app.range_mode=3u;
     cal_start(&sim,4u);cal_finish(&sim);
-    for(unsigned f=0u;f<4u;++f) {
+    for(unsigned f=0u;f<=LCR_CAL_MAX_FREQUENCY_INDEX;++f) {
         assert(app.profile.slots[f][2].flags==(LCR_CAL_CHANNEL|LCR_CAL_FEEDBACK));
         assert(fabs(app.profile.slots[f][2].rf_ohm-1001.0)<3.0);
     }

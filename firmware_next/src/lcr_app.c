@@ -91,7 +91,7 @@ static int cal_begin(lcr_app *a, unsigned kind, uint32_t now) {
     a->cal_range = kind == LCR_CAPTURE_CHANNEL ? 3u :
                     kind == LCR_CAPTURE_STANDARD ? (a->range_mode ? a->range_mode - 1u : a->active_range) : 0u;
     if (kind != LCR_CAPTURE_CHANNEL) {
-        for (unsigned f = 0u; f < 4u; ++f)
+        for (unsigned f = 0u; f <= LCR_CAL_MAX_FREQUENCY_INDEX; ++f)
             if (!(a->working.slots[f][a->cal_range].flags & LCR_CAL_CHANNEL)) {
                 message(a, "RUN CHANNEL CAL FIRST", "DISCONNECT DUT"); return 0;
             }
@@ -210,7 +210,19 @@ static void cal_advance(lcr_app *a, uint32_t now) {
     a->session.state = LCR_SESSION_IDLE;
     a->next_start = now + 40u; a->dirty = 1u;
 }
+/* Skip a whole frequency that the excitation source cannot drive.  The OPEN
+   sweep advances range by range, so jump the range cursor past 5 to let
+   cal_advance() roll over to the next frequency (and copy the fixture terms
+   for the unsupported one). */
+static void cal_skip_frequency(lcr_app *a, uint32_t now) {
+    a->cal_range = 6u;
+    cal_advance(a, now);
+}
 static void calibration_result(lcr_app *a, uint32_t now) {
+    /* Bands above the calibrated-excitation limit cannot be measured with the
+       present source (see LCR_CAL_MAX_FREQUENCY_INDEX); skip them so the rest
+       of the sweep still completes. */
+    if (a->cal_frequency > LCR_CAL_MAX_FREQUENCY_INDEX) { cal_skip_frequency(a, now); return; }
     /* An open fixture has almost no current on the low ranges: V2 is below
        the noise floor and the raw impedance is meaningless. Skip those pairs
        instead of treating them as unstable and aborting the whole sweep. */
@@ -400,7 +412,9 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
     }
     if (!active(a) && (int32_t)(now-a->next_start)>=0 && a->session.state != LCR_SESSION_DONE) {
         if (a->page==LCR_PAGE_CAL && a->calibration) {
-            if (!lcr_session_calibrate(&a->session,a->cal_frequency,a->cal_range,
+            if (a->cal_frequency > LCR_CAL_MAX_FREQUENCY_INDEX) {
+                cal_skip_frequency(a, now);
+            } else if (!lcr_session_calibrate(&a->session,a->cal_frequency,a->cal_range,
                                       (lcr_capture_kind)a->calibration,a->profile.hse_hz,now))
                 message(a,"CAL START FAILED","PREVIOUS CAL RETAINED");
         } else if (a->running && a->page==LCR_PAGE_MEASURE) {
