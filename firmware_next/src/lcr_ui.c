@@ -54,8 +54,6 @@ unsigned lcr_keys_poll(lcr_keys *keys, unsigned raw, uint32_t now) {
 }
 
 void lcr_canvas_clear(lcr_canvas *canvas) { memset(canvas, 0, sizeof(*canvas)); }
-static const uint16_t lcr_omega_glyph[6] = {0x21Eu,0x321u,0x0C1u,0x0C1u,0x321u,0x21Eu};
-
 static void pixel(lcr_canvas *canvas, unsigned x, unsigned y) {
     if (x < 128u && y < 64u) canvas->pixels[(y / 8u) * 128u + x] |= (uint8_t)(1u << (y % 8u));
 }
@@ -66,7 +64,7 @@ void lcr_canvas_text(lcr_canvas *canvas, unsigned x, unsigned y, const char *tex
         if (ch == 0x7fu) {
             for (unsigned col = 0u; col < 6u; ++col)
                 for (unsigned row = 0u; row < 10u; ++row)
-                    if (lcr_omega_glyph[col] & (1u << row))
+                    if (lcr_font_omega[col] & (1u << row))
                         for (unsigned a = 0u; a < scale; ++a)
                             for (unsigned b = 0u; b < scale; ++b)
                                 pixel(canvas, x + col * scale + a, y + row * scale + b);
@@ -192,7 +190,9 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
             if (rf >= 1000000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luM\x7f", rf / 1000000ul);
             else if (rf >= 1000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luk\x7f", rf / 1000ul);
             else (void)snprintf(rbuf, sizeof(rbuf), "%lu\x7f", rf);
-            (void)snprintf(text, sizeof(text), "%s %s", fbuf, rbuf);
+            const int calibrated = (m->calibration_flags & (LCR_CAL_CHANNEL | LCR_CAL_FEEDBACK)) ==
+                                (LCR_CAL_CHANNEL | LCR_CAL_FEEDBACK);
+            (void)snprintf(text, sizeof(text), "%s %s %s", fbuf, rbuf, calibrated ? "CAL" : "UNCAL");
             lcr_canvas_text(c, 0u, info_y, text, 1u);
         }
     } else lcr_canvas_text(c, 0u, 47u, "KEY:START HOLD:MENU", 1u);
