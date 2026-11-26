@@ -310,6 +310,11 @@ static void stabilise_result(lcr_app *a) {
     z.re = median_of(re, a->smooth_n);
     z.im = median_of(im, a->smooth_n);
     if (lcr_parameters_from_z(z, m->actual_hz, &p) != LCR_OK) return;
+    /* Near-zero phase is a resistor even when the V2 noise pushes |phi| past
+       the classifier threshold for one sample. Real L/C parts sit far away
+       (a capacitor with D=10 is already at -5.7 deg), so a +-6 deg deadband
+       keeps the type letter stable without hiding inductors or capacitors. */
+    if (p.kind != LCR_COMPONENT_R && fabs(p.phase_deg) < 6.0) p.kind = LCR_COMPONENT_R;
     if (p.kind == a->stable_kind) {
         a->kind_streak = 0u;
     } else if (a->stable_kind == LCR_COMPONENT_UNKNOWN) {

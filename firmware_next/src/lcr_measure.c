@@ -55,7 +55,7 @@ lcr_status lcr_parameters_from_z(lcr_complex z, double hz, lcr_parameters *out) 
     /* Provisional phase heuristic. Small negative ESR can be below resolution;
        retain its sign, omit passive loss parameters, but still describe L/C. */
     if (z.re >= -0.02 * magnitude) {
-        if (z.re >= 0.0 && fabs(z.im) <= 0.02 * z.re) p.kind = LCR_COMPONENT_R;
+        if (z.re >= 0.0 && fabs(z.im) <= 0.05 * z.re) p.kind = LCR_COMPONENT_R;
         else p.kind = z.im > 0.0 ? LCR_COMPONENT_L : LCR_COMPONENT_C;
     }
     if (z.im > 0.0) {
