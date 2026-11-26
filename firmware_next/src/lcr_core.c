@@ -119,6 +119,54 @@ lcr_status lcr_feedback(double rf, double cf, double hz, lcr_complex *out) {
     return divide(one, admittance, out);
 }
 
+lcr_status lcr_ratio_robust(const uint16_t *samples, size_t count, size_t stride,
+                            double omega, lcr_complex *out) {
+    if (!samples || !out || stride < 2u || count < 128u || (count % 8u) ||
+        (count - 1u) > SIZE_MAX / stride) return LCR_BAD_INPUT;
+    const size_t chunk = count / 8u;
+    if (chunk < 16u) return LCR_BAD_INPUT;
+    double real[8], imaginary[8];
+    for (size_t index = 0u; index < 8u; ++index) {
+        lcr_fit v1, v2;
+        lcr_status status = lcr_fit_adc(samples + 2u * index * chunk, chunk, stride,
+                                        omega, &v1);
+        if (status != LCR_OK) return status;
+        status = lcr_fit_adc(samples + 1u + 2u * index * chunk, chunk, stride,
+                             omega, &v2);
+        if (status != LCR_OK) return status;
+        lcr_complex ratio;
+        status = divide(v1.phasor, v2.phasor, &ratio);
+        if (status != LCR_OK) return status;
+        real[index] = ratio.re;
+        imaginary[index] = ratio.im;
+    }
+    for (size_t i = 1u; i < 8u; ++i) {
+        const double key = real[i];
+        size_t j = i;
+        while (j > 0u && real[j - 1u] > key) { real[j] = real[j - 1u]; --j; }
+        real[j] = key;
+        const double key_im = imaginary[i];
+        j = i;
+        while (j > 0u && imaginary[j - 1u] > key_im) { imaginary[j] = imaginary[j - 1u]; --j; }
+        imaginary[j] = key_im;
+    }
+    lcr_complex median = {0.5 * (real[3] + real[4]), 0.5 * (imaginary[3] + imaginary[4])};
+    if (!finite_complex(median)) return LCR_BAD_INPUT;
+    *out = median;
+    return LCR_OK;
+}
+
+lcr_status lcr_impedance_from_ratio(lcr_complex ratio, lcr_complex zf,
+                                    lcr_complex alpha, lcr_complex *out) {
+    if (!out || !finite_complex(ratio) || !finite_complex(zf) ||
+        !finite_complex(alpha) || hypot(zf.re, zf.im) < 1e-12 ||
+        hypot(alpha.re, alpha.im) < 1e-12) return LCR_BAD_INPUT;
+    lcr_complex numerator = multiply(zf, ratio);
+    numerator.re = -numerator.re;
+    numerator.im = -numerator.im;
+    return divide(numerator, alpha, out);
+}
+
 static lcr_status quality(const lcr_fit *value, int allow_weak) {
     if (!value || !finite_complex(value->phasor) || !isfinite(value->dc) ||
         !isfinite(value->residual_rms) || value->residual_rms < 0) return LCR_BAD_INPUT;

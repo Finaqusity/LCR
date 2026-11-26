@@ -114,6 +114,17 @@ static lcr_status process(const uint16_t *pairs, size_t count,
     status = lcr_impedance_ex(&out->v1, &out->v2, zf, alpha, 1, &out->raw_z);
     if (status != LCR_OK && status != LCR_WEAK_SIGNAL) return status;
     const lcr_status signal_status = status; /* LCR_OK or LCR_WEAK_SIGNAL */
+    /* The long capture is split into eight sub-frames whose complex ratios
+       are combined by a median; this rejects the broadband V2 noise that a
+       single long fit averages into a biased phasor. */
+    if (count >= 4096u && (count % 8u) == 0u) {
+        lcr_complex robust;
+        if (lcr_ratio_robust(pairs, count, 2u, omega, &robust) == LCR_OK) {
+            lcr_complex impedance;
+            if (lcr_impedance_from_ratio(robust, zf, alpha, &impedance) == LCR_OK)
+                out->raw_z = impedance;
+        }
+    }
     out->corrected_z = out->raw_z;
     if (cal && (cal->flags & LCR_CAL_FIXTURE)) {
         const lcr_status compensated = lcr_compensate(out->raw_z, cal->zs, cal->yo, &out->corrected_z);

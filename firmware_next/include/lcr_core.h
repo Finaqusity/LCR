@@ -36,6 +36,11 @@ uint32_t lcr_dds_word(uint32_t hz);
 double lcr_sample_omega(const lcr_frequency *frequency);
 lcr_status lcr_fit_adc(const uint16_t *samples, size_t count, size_t stride,
                        double omega, lcr_fit *out);
+/* Long captures carry less noise than their halves: split the interleaved
+   V1/V2 stream into eight equal sub-frames, fit each as usual, and combine
+   the eight complex ratios with a component-wise median. */
+lcr_status lcr_ratio_robust(const uint16_t *samples, size_t count, size_t stride,
+                            double omega, lcr_complex *out);
 lcr_status lcr_feedback(double rf, double cf, double hz, lcr_complex *out);
 lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
                          lcr_complex zf, lcr_complex alpha, lcr_complex *out);
@@ -44,6 +49,9 @@ lcr_status lcr_impedance(const lcr_fit *v1, const lcr_fit *v2,
 lcr_status lcr_impedance_ex(const lcr_fit *v1, const lcr_fit *v2,
                             lcr_complex zf, lcr_complex alpha, int allow_weak,
                             lcr_complex *out);
+/* Apply the impedance formula to an already-computed V1/V2 ratio. */
+lcr_status lcr_impedance_from_ratio(lcr_complex ratio, lcr_complex zf,
+                                    lcr_complex alpha, lcr_complex *out);
 lcr_status lcr_open_admittance(const lcr_fit *v1, const lcr_fit *v2,
                                lcr_complex zf, lcr_complex alpha, lcr_complex *out);
 lcr_status lcr_compensate(lcr_complex zm, lcr_complex zs,

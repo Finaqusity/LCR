@@ -1,4 +1,4 @@
-﻿#include "lcr_core.h"
+#include "lcr_core.h"
 
 #include <assert.h>
 #include <math.h>
@@ -90,6 +90,42 @@ int main(void) {
     assert(hypot(result.re - 500.0, result.im + 600.0) < 1e-9);
     assert(lcr_feedback(0.0, 0.0, 1000.0, &result) == LCR_BAD_INPUT);
     assert(lcr_compensate(one, zero, one, 0) != LCR_OK);
+    /* Robust aggregation must reject sub-frames whose V2 is badly corrupted:
+       two of eight chunks carry an extra 40 percent of V2 amplitude, the median ignores
+       them while the single full-frame fit is visibly biased. */
+    {
+        const lcr_frequency *f = &lcr_frequencies[1];
+        const double omega = lcr_sample_omega(f);
+        const unsigned count = f->sample_pairs, chunk = count / 8u;
+        waveform(a, count, omega, 600.0, 0.0, 2100.0);
+        waveform(b, count, omega, -600000.0 * 500.0 / 610000.0,
+                 -600000.0 * 600.0 / 610000.0, 1900.0);
+        for (unsigned n = 0u; n < count; ++n) {
+            double v2 = (double)b[n];
+            if (n < chunk || n >= 7u * chunk) {
+                v2 = 1900.0 + 1.4 * (v2 - 1900.0);
+                if (v2 < 0.0) v2 = 0.0;
+                if (v2 > 4095.0) v2 = 4095.0;
+            }
+            interleaved[2u * n] = a[n];
+            interleaved[2u * n + 1u] = (uint16_t)(v2 + 0.5);
+        }
+        lcr_fit clean_v1, clean_v2, full_v1, full_v2;
+        assert(lcr_fit_adc(a, count, 1u, omega, &clean_v1) == LCR_OK);
+        assert(lcr_fit_adc(b, count, 1u, omega, &clean_v2) == LCR_OK);
+        assert(lcr_fit_adc(interleaved, count, 2u, omega, &full_v1) == LCR_OK);
+        assert(lcr_fit_adc(interleaved + 1u, count, 2u, omega, &full_v2) == LCR_OK);
+        lcr_complex unit_gain = {1.0, 0.0}, clean_im, robust_im, full_im;
+        lcr_complex robust_ratio;
+        assert(lcr_impedance(&clean_v1, &clean_v2, unit_gain, unit_gain, &clean_im) == LCR_OK);
+        assert(lcr_ratio_robust(interleaved, count, 2u, omega, &robust_ratio) == LCR_OK);
+        assert(lcr_impedance_from_ratio(robust_ratio, unit_gain, unit_gain, &robust_im) == LCR_OK);
+        assert(lcr_impedance_ex(&full_v1, &full_v2, unit_gain, unit_gain, 1,
+                                &full_im) == LCR_OK);
+        const double base_length = hypot(clean_im.re, clean_im.im);
+        assert(hypot(robust_im.re - clean_im.re, robust_im.im - clean_im.im) / base_length < 1e-3);
+        assert(hypot(full_im.re - clean_im.re, full_im.im - clean_im.im) / base_length > 0.01);
+    }
     puts("lcr_core: all C tests passed");
     return 0;
 }
