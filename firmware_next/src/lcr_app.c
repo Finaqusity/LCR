@@ -7,6 +7,14 @@
 /* Implemented below; used by the settings menu before its definition. */
 int lcr_app_cal_save(lcr_app *a);
 
+/* SWD-readable calibration diagnostics: the per-sample calibration quantity
+ * of the current slot (CHANNEL: V1/V2 ratio; OPEN: fixture admittance;
+ * STANDARD: measured ratio).  Used to explain unstable-three-sample verdicts
+ * without reflashing a special build. */
+volatile double lcr_cal_dbg_re[16];
+volatile double lcr_cal_dbg_im[16];
+volatile unsigned lcr_cal_dbg_count;
+
 static const unsigned frequencies[4] = {1u,2u,3u,0u};
 static const char *const menu_names[] = {"FREQUENCY", "RANGE", "CHANNEL CAL", "OPEN CAL", "RF STANDARD",
     "SHORT CAL:LOCKED", "SAVE CAL", "CLEAR CAL", "BACK"};
@@ -97,6 +105,12 @@ static int cal_begin(lcr_app *a, unsigned kind, uint32_t now) {
             }
     }
     a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
+    lcr_cal_dbg_count = 0u;
+    /* Keep the excitation and the relay state between the samples of one
+       calibration slot: the analogue chain then only settles once per slot
+       instead of once per sample, so the multi-sample average is not spent
+       on settling transients. */
+    a->session.keep_excitation = 1u;
     a->last.valid = 0u;
     a->next_start = now; a->page = LCR_PAGE_CAL; a->dirty = 1u;
     return 1;
@@ -144,7 +158,8 @@ static lcr_complex divide(lcr_complex a, lcr_complex b) {
 }
 static int finish_slot(lcr_app *a) {
     const unsigned f = a->cal_frequency, r = a->cal_range;
-    lcr_complex mean = {a->cal_sum.re / 3.0, a->cal_sum.im / 3.0};
+    const unsigned samples = a->calibration == LCR_CAPTURE_CHANNEL ? LCR_CAL_CHANNEL_SAMPLES : 3u;
+    lcr_complex mean = {a->cal_sum.re / (double)samples, a->cal_sum.im / (double)samples};
     if (!isfinite(mean.re) || !isfinite(mean.im)) return 0;
     lcr_calibration *slot = &a->working.slots[f][r];
     if (a->calibration == LCR_CAPTURE_CHANNEL) {
@@ -183,6 +198,7 @@ static int finish_slot(lcr_app *a) {
 /* Move the open-standard sweep to its next (frequency, range) pair. */
 static void cal_advance(lcr_app *a, uint32_t now) {
     a->cal_samples = 0u; a->cal_sum.re = a->cal_sum.im = 0.0;
+    lcr_cal_dbg_count = 0u;
     if (a->calibration == LCR_CAPTURE_OPEN && ++a->cal_range < 6u) { /* next range */ }
     else {
         if (a->calibration == LCR_CAPTURE_OPEN) {
@@ -205,6 +221,10 @@ static void cal_advance(lcr_app *a, uint32_t now) {
     }
     if (a->cal_frequency >= 4u) {
         a->profile = a->working; a->unsaved = 1u;
+        /* The sweep kept the analogue chain running between samples; mute it
+           again once no more samples are coming. */
+        lcr_session_stop(&a->session);
+        a->session.keep_excitation = 0u;
         message(a, "CAL COMPLETE IN RAM", "MENU: SAVE CAL"); return;
     }
     a->session.state = LCR_SESSION_IDLE;
@@ -239,9 +259,23 @@ static void calibration_result(lcr_app *a, uint32_t now) {
                             a->session.result.status == LCR_CLIPPED;
         if (clipped || v2 < 100.0 || rho < 1.0 || rho > 100.0) { cal_advance(a, now); return; }
     }
+    /* Record every sample, including the one that trips the consistency check,
+       so the sample scatter can be inspected over SWD after a failed sweep. */
+    {
+        const unsigned index = a->cal_samples < 16u ? a->cal_samples : 15u;
+        lcr_cal_dbg_re[index] = a->session.result.raw_z.re;
+        lcr_cal_dbg_im[index] = a->session.result.raw_z.im;
+        if (a->cal_samples < 16u) lcr_cal_dbg_count = a->cal_samples + 1u;
+    }
     if(a->cal_samples) {
         const lcr_complex mean={a->cal_sum.re/a->cal_samples,a->cal_sum.im/a->cal_samples};
-        double tolerance=0.005*hypot(mean.re,mean.im);
+        /* CHANNEL samples scatter with the 0.5..2 Hz V2 gain drift (~0.7 %),
+           so the gate has to accept the drift and the sweep averages it out;
+           the OPEN sweep keeps the tight gate because its drift cancellation
+           comes from per-range measurements instead. */
+        const double consistency = a->calibration == LCR_CAPTURE_CHANNEL
+                                       ? LCR_CAL_CHANNEL_CONSISTENCY : 0.005;
+        double tolerance=consistency*hypot(mean.re,mean.im);
         if(a->calibration==LCR_CAPTURE_OPEN) {
             const lcr_calibration *slot=&a->working.slots[a->cal_frequency][a->cal_range];
             lcr_complex zf;
@@ -263,7 +297,8 @@ static void calibration_result(lcr_app *a, uint32_t now) {
     }
     a->cal_sum.re += a->session.result.raw_z.re; a->cal_sum.im += a->session.result.raw_z.im;
     ++a->cal_samples;
-    if (a->cal_samples == 3u) {
+    const unsigned target = a->calibration == LCR_CAPTURE_CHANNEL ? LCR_CAL_CHANNEL_SAMPLES : 3u;
+    if (a->cal_samples == target) {
         if (!finish_slot(a)) { message(a, "CAL MODEL REJECTED", "PREVIOUS CAL RETAINED"); return; }
         cal_advance(a, now);
         return;
@@ -389,7 +424,8 @@ static void render(lcr_app *a) {
         lcr_canvas_text(&a->canvas,0u,53u,"KEY:CANCEL HOLD:GO",1u);
     } else if (a->page == LCR_PAGE_CAL) {
         char progress[32];
-        (void)snprintf(progress,sizeof(progress),"F%u R%u SAMPLE %u/3",a->cal_frequency+1u,a->cal_range+1u,a->cal_samples+1u);
+        const unsigned target = a->calibration == LCR_CAPTURE_CHANNEL ? LCR_CAL_CHANNEL_SAMPLES : 3u;
+        (void)snprintf(progress,sizeof(progress),"F%u R%u SAMPLE %u/%u",a->cal_frequency+1u,a->cal_range+1u,a->cal_samples+1u,target);
         lcr_ui_message(&a->canvas,"CALIBRATING",progress,"KEY:CANCEL");
     } else {
         lcr_ui_message(&a->canvas,"LCR STATUS",a->message,a->message2);

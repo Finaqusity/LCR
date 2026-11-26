@@ -1,4 +1,5 @@
 #include "lcr_board.h"
+#include "lcr_config.h"
 #include "lcr_core.h"
 #include "stm32f4xx.h"
 
@@ -31,7 +32,7 @@ void lcr_board_capture_cancel(void *context) {
 
 int lcr_board_capture_start(void *context, unsigned frequency, unsigned range, size_t count, uint32_t token) {
     (void)context; (void)range;
-    if (frequency >= 4u || count == 0u || count > lcr_frequencies[frequency].sample_pairs || !token) return 0;
+    if (frequency >= 4u || count == 0u || count > LCR_CAPTURE_PAIRS_MAX || !token) return 0;
     lcr_board_capture_cancel(0);
     if (DMA2_Stream0->CR & DMA_SxCR_EN) return 0;
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOCEN;

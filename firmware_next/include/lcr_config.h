@@ -58,6 +58,22 @@
 #define LCR_CAL_MAX_FREQUENCY_INDEX 3u
 #endif
 
+/* DMA block limit of the platform capture layer (dma_words[8192] pairs). */
+#define LCR_CAPTURE_PAIRS_MAX 8192u
+
+/* Calibration frames are longer than a normal measurement frame whenever the
+ * frequency table only gives a short capture.  The 100 Hz slot captures 128
+ * pairs (80 ms); a calibration frame may be long without hurting the 1 s
+ * measurement budget. */
+#define LCR_CAL_MIN_PAIRS 512u
+
+/* CHANNEL calibration averages many frames because the dominant sample-to-
+ * sample scatter is the 0.5..2 Hz V2 gain drift (~0.7 % between frames), not
+ * white noise; a wider consistency gate accepts that drift and the mean over
+ * many frames averages it down. */
+#define LCR_CAL_CHANNEL_SAMPLES 16u
+#define LCR_CAL_CHANNEL_CONSISTENCY 0.02
+
 #define LCR_FIXTURE_ID 1u
 #define LCR_DEFAULT_HSE_HZ 8000000.0
 

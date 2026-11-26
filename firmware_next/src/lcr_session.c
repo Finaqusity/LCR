@@ -16,7 +16,7 @@ static void finish(lcr_session *s, lcr_session_error error, lcr_session_state te
     s->active_token = next_token(s);
     s->io.capture_cancel(s->io.context);
     if (!(terminal == LCR_SESSION_DONE && error == LCR_SESSION_NO_ERROR &&
-          s->keep_excitation && s->kind == LCR_CAPTURE_MEASURE)) lcr_frontend_stop(&s->frontend);
+          s->keep_excitation)) lcr_frontend_stop(&s->frontend);
     if (s->frontend.state == LCR_FE_FAULT) {
         s->error = LCR_SESSION_FRONTEND_ERROR;
         terminal = LCR_SESSION_FAILED;
@@ -81,8 +81,11 @@ static int start(lcr_session *s, unsigned frequency, unsigned initial_range,
         s->state == LCR_SESSION_STOPPING || s->frontend.state == LCR_FE_FAULT) return 0;
     const lcr_measure_config config = {frequency, initial_range, hse_hz, 0};
     if ((autorange != 0 && autorange != 1) || lcr_measure_config_check(&config) != LCR_OK) return 0;
-    const int reuse = s->kind == LCR_CAPTURE_MEASURE && kind == LCR_CAPTURE_MEASURE &&
-                      s->keep_excitation && s->frontend.state == LCR_FE_READY &&
+    /* Reuse the warmed-up frontend when the same acquisition is repeated:
+       K-frame measurement averaging and the many-sample calibration sweep.
+       Only a frequency, range or capture-kind change pays the settling. */
+    const int reuse = s->kind == kind && s->keep_excitation &&
+                      s->frontend.state == LCR_FE_READY &&
                       s->config.frequency_index == frequency && s->frontend.range == initial_range;
     s->kind = kind;
     s->config = config;
@@ -119,7 +122,7 @@ int lcr_session_calibrate(lcr_session *s, unsigned frequency, unsigned range,
 static lcr_status calibration_frame(lcr_session *s, const uint16_t *pairs, size_t count) {
     lcr_measurement *m = &s->result;
     memset(m, 0, sizeof(*m));
-    if (!pairs || count == 0u || count > lcr_frequencies[s->config.frequency_index].sample_pairs) return LCR_BAD_INPUT;
+    if (!pairs || count == 0u || count > LCR_CAPTURE_PAIRS_MAX) return LCR_BAD_INPUT;
     const lcr_frequency *f = &lcr_frequencies[s->config.frequency_index];
     m->frequency_index = s->config.frequency_index; m->range_index = s->config.range_index;
     m->actual_hz = s->config.hse_hz * lcr_dds_word(f->nominal_hz) / 268435456.0;
@@ -163,6 +166,12 @@ void lcr_session_poll(lcr_session *s, uint32_t now) {
             if(s->settling && (int32_t)(now-s->settle_next)<0)return;
             const lcr_frequency *f = &lcr_frequencies[s->config.frequency_index];
             size_t capture_pairs = f->sample_pairs;
+            /* Calibration is not time limited: give the low bands a longer
+               frame so the per-sample channel ratio is not dominated by the
+               80 ms capture noise at 100 Hz.  Measurements keep the table
+               window (the 1 s measurement budget). */
+            if (s->kind != LCR_CAPTURE_MEASURE && capture_pairs < LCR_CAL_MIN_PAIRS)
+                capture_pairs = LCR_CAL_MIN_PAIRS;
             if (s->settling && capture_pairs > 256u) capture_pairs = 256u;
             s->capture_timeout = 100u + ((uint32_t)capture_pairs * f->timer_divisor + 83999u) / 84000u;
             s->capture_since = now;
