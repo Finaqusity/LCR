@@ -160,7 +160,10 @@ lcr_range_choice lcr_choose_range(const lcr_measurement *frame, uint8_t visited)
     if (!usable_fit(&frame->v1) || !usable_fit(&frame->v2) || frame->v1.clipped) return choice;
     const double amplitude1 = hypot(frame->v1.phasor.re, frame->v1.phasor.im);
     const double amplitude2 = hypot(frame->v2.phasor.re, frame->v2.phasor.im);
-    if (amplitude1 < 3.0 || amplitude1 < 14.14213562373095 * frame->v1.residual_rms) return choice;
+    /* Six sigma of V1 is enough to know that the DUT voltage is real.  A
+       clipped V2 must be allowed to step down even when V1 looks noisy,
+       because the saturated I-V stage itself raises the V1 residual. */
+    if (amplitude1 < 3.0 || amplitude1 < 6.0 * frame->v1.residual_rms) return choice;
     /* V2 carries the I-V signal; when it is buried in the channel noise the
        right move is another range step (more Rf -> more signal), not a hard
        failure.  The old 14.14-sigma gate made noisy channels report
