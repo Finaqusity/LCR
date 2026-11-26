@@ -170,7 +170,12 @@ lcr_range_choice lcr_choose_range(const lcr_measurement *frame, uint8_t visited)
        FRAME_ERROR instead of trying the next range. */
     const double v2_noise = 6.0 * frame->v2.residual_rms;
     const double headroom = fmin(frame->v2.dc - 32.0, 4063.0 - frame->v2.dc);
-    const double ceiling = fmin(1750.0, 0.9 * headroom);
+    /* The fit tolerates almost the whole ADC span, so the accept ceiling is
+       set just inside the analogue headroom.  The old hard 1750-code cap made
+       a mid-range DUT (for example 4.7 k on the 10 k range, V2 ~1809) step
+       down into a range where V2 is buried in noise, and the two ranges then
+       chased each other forever. */
+    const double ceiling = 0.95 * headroom;
     int direction = 0;
     if (frame->v2.clipped || amplitude2 > ceiling) direction = -1;
     else if (amplitude2 < 80.0 || amplitude2 < v2_noise) direction = 1;
