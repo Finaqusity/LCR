@@ -54,6 +54,8 @@ unsigned lcr_keys_poll(lcr_keys *keys, unsigned raw, uint32_t now) {
 }
 
 void lcr_canvas_clear(lcr_canvas *canvas) { memset(canvas, 0, sizeof(*canvas)); }
+static const uint16_t lcr_omega_glyph[6] = {0x21Eu,0x321u,0x0C1u,0x0C1u,0x321u,0x21Eu};
+
 static void pixel(lcr_canvas *canvas, unsigned x, unsigned y) {
     if (x < 128u && y < 64u) canvas->pixels[(y / 8u) * 128u + x] |= (uint8_t)(1u << (y % 8u));
 }
@@ -61,6 +63,16 @@ void lcr_canvas_text(lcr_canvas *canvas, unsigned x, unsigned y, const char *tex
     if (!canvas || !text || !scale || scale > 4u) return;
     while (*text && x < 128u) {
         unsigned ch = (unsigned char)*text++;
+        if (ch == 0x7fu) {
+            for (unsigned col = 0u; col < 6u; ++col)
+                for (unsigned row = 0u; row < 10u; ++row)
+                    if (lcr_omega_glyph[col] & (1u << row))
+                        for (unsigned a = 0u; a < scale; ++a)
+                            for (unsigned b = 0u; b < scale; ++b)
+                                pixel(canvas, x + col * scale + a, y + row * scale + b);
+            x += 6u * scale;
+            continue;
+        }
         if (ch < 32u || ch > 126u) ch = '?';
         for (unsigned col = 0u; col < 6u; ++col)
             for (unsigned row = 0u; row < 10u; ++row)
@@ -86,7 +98,7 @@ int lcr_ui_value(const lcr_measurement *m, lcr_model model, double *value, const
     switch (p->kind) {
     case LCR_COMPONENT_R:
         if (model == LCR_MODEL_PARALLEL && !(p->available & LCR_PARAM_RP)) return 0;
-        *value = model == LCR_MODEL_SERIES ? p->rs_ohm : p->rp_ohm; *unit = "OHM"; break;
+        *value = model == LCR_MODEL_SERIES ? p->rs_ohm : p->rp_ohm; *unit = "\x7f"; break;
     case LCR_COMPONENT_L:
         if (!(p->available & (model == LCR_MODEL_SERIES ? LCR_PARAM_LS : LCR_PARAM_LP))) return 0;
         *value = model == LCR_MODEL_SERIES ? p->ls_h : p->lp_h; *unit = "H"; break;
@@ -162,7 +174,7 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
     if (m && m->valid && m->range_index < LCR_RANGE_COUNT) {
         if (details) {
             char number[24],q[16],d[16];
-            lcr_ui_number(number,sizeof(number),m->parameters.rs_ohm,"OHM");
+            lcr_ui_number(number,sizeof(number),m->parameters.rs_ohm,"\x7f");
             (void)snprintf(text,sizeof(text),"Rs:%s",number);
             lcr_canvas_text(c,0u,info_y,text,1u);
             if(m->parameters.available&LCR_PARAM_Q)lcr_ui_number(q,sizeof(q),m->parameters.q,"");
@@ -175,13 +187,12 @@ void lcr_ui_measure(lcr_canvas *c, const lcr_measurement *m, lcr_model model, co
             char fbuf[16], rbuf[16];
             const unsigned long hz = (unsigned long)(m->actual_hz + 0.5);
             const unsigned long rf = (unsigned long)lcr_nominal_rf[m->range_index];
-            if (hz >= 1000ul) (void)snprintf(fbuf, sizeof(fbuf), "%luKHz", hz / 1000ul);
+            if (hz >= 1000ul) (void)snprintf(fbuf, sizeof(fbuf), "%lukHz", hz / 1000ul);
             else (void)snprintf(fbuf, sizeof(fbuf), "%luHz", hz);
-            if (rf >= 1000000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luM", rf / 1000000ul);
-            else if (rf >= 1000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luK", rf / 1000ul);
-            else (void)snprintf(rbuf, sizeof(rbuf), "%luR", rf);
-            (void)snprintf(text, sizeof(text), "%s RF%s %s", fbuf, rbuf,
-                           m->calibration_flags ? "CAL" : "UNCAL");
+            if (rf >= 1000000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luM\x7f", rf / 1000000ul);
+            else if (rf >= 1000ul) (void)snprintf(rbuf, sizeof(rbuf), "%luk\x7f", rf / 1000ul);
+            else (void)snprintf(rbuf, sizeof(rbuf), "%lu\x7f", rf);
+            (void)snprintf(text, sizeof(text), "%s %s", fbuf, rbuf);
             lcr_canvas_text(c, 0u, info_y, text, 1u);
         }
     } else lcr_canvas_text(c, 0u, 47u, "KEY:START HOLD:MENU", 1u);
