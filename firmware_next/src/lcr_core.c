@@ -3,6 +3,8 @@
 #include <float.h>
 #include <math.h>
 
+#include "lcr_config.h"
+
 static const double tau = 6.283185307179586476925286766559;
 const lcr_frequency lcr_frequencies[4] = {
     {100u, 52500u, 128u}, {1000u, 5250u, 8192u},
@@ -105,7 +107,7 @@ lcr_status lcr_fit_adc(const uint16_t *samples, size_t count, size_t stride,
         cosine = next;
     }
     lcr_fit value = {{beta[1], -beta[2]}, beta[0], sqrt(energy / (double)count),
-                     low, high, (uint8_t)(low <= 8u || high >= 4087u)};
+                     low, high, (uint8_t)(low <= LCR_ADC_CLIP_LOW || high >= LCR_ADC_CLIP_HIGH)};
     if (!finite_complex(value.phasor) || !isfinite(value.dc) || !isfinite(value.residual_rms))
         return LCR_BAD_INPUT;
     *out = value;

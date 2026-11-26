@@ -77,11 +77,23 @@
 #define LCR_FIXTURE_ID 1u
 #define LCR_DEFAULT_HSE_HZ 8000000.0
 
+/* Analogue saturation window.  The I-V output stage (BUF634A inside the
+ * OPA2810 loop, 9 V rail, ADC inputs clamped to 3V3A) runs out of swing before
+ * the ADC itself reaches 0/4095: a saturated V2 frame measures min 13 / max
+ * 4071, so a rail test at 8/4087 never flags it and the auto-range would never
+ * step down.  Keep the window just inside the analogue swing. */
+#define LCR_ADC_CLIP_LOW 32u
+#define LCR_ADC_CLIP_HIGH 4063u
+
 /* Provisional observable-signal stability gates; final limits need bench validation. */
 #define LCR_ADAPTIVE_SETTLE 1u
 #define LCR_MIN_SETTLE_MS 20u
 #define LCR_STABILITY_INTERVAL_MS 20u
 #define LCR_STABILITY_TIMEOUT_MS 1200u
 #define LCR_STABILITY_DC_CODES 5.0
-#define LCR_STABILITY_RELATIVE 0.01
+/* The settling gate only has to reject a range-switch step.  A settling frame
+ * is only 256 pairs (16 ms at 1 kHz), so its V1 amplitude estimate itself
+ * jitters by ~1 % on a healthy channel and a 1 % gate never closes; 3 % still
+ * rejects the 10x amplitude step of a wrong range. */
+#define LCR_STABILITY_RELATIVE 0.03
 #endif
