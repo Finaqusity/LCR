@@ -17,7 +17,7 @@ volatile unsigned lcr_cal_dbg_count;
 
 static const unsigned frequencies[4] = {1u,2u,3u,0u};
 static const char *const menu_names[] = {"FREQUENCY", "RANGE", "CHANNEL CAL", "OPEN CAL", "RF STANDARD",
-    "SHORT CAL:LOCKED", "SAVE CAL", "CLEAR CAL", "BACK"};
+    "SHORT CAL:LOCKED", "SAVE CAL", "CLEAR CAL", "MODEL S/P"};
 static int frequency_io(void *context, uint32_t hz) {
     lcr_app *a = context;
     return a->io.acquisition.frequency(a->io.acquisition.context, hz);
@@ -88,6 +88,7 @@ static void menu_activate(lcr_app *a) {
     else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
     else if (a->menu == 6u) (void)lcr_app_cal_save(a);
     else if (a->menu == 7u) a->page = LCR_PAGE_CONFIRM;
+    else if (a->menu == 8u) a->model = a->model == LCR_MODEL_SERIES ? LCR_MODEL_PARALLEL : LCR_MODEL_SERIES;
     else a->page = LCR_PAGE_MEASURE;
 }
 /* Start a calibration sweep; shared by the key UI and the serial console. */
@@ -120,7 +121,8 @@ static void confirm_execute(lcr_app *a, uint32_t now) {
     (void)cal_begin(a, a->menu == 2u ? LCR_CAPTURE_CHANNEL : a->menu == 3u ? LCR_CAPTURE_OPEN : LCR_CAPTURE_STANDARD, now);
 }
 /* One physical key (WK_UP) with three gestures:
- *   MEASURE  short = start/stop, long = settings, double = series/parallel
+ *   MEASURE  short = next frequency, double = start one measurement,
+ *            long = settings
  *   MENU     short = next item, long = activate, double = back to measure
  *   CONFIRM  short = cancel, long = execute
  *   MESSAGE  short = retry measurement, long = back to menu
@@ -131,9 +133,16 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
         if (events & LCR_KEY_LONG) {
             stop(a); a->calibration = 0u; a->page = LCR_PAGE_MENU;
         } else if (events & LCR_KEY_DOUBLE) {
-            a->model = a->model == LCR_MODEL_SERIES ? LCR_MODEL_PARALLEL : LCR_MODEL_SERIES;
+            /* Double press: run exactly one measurement (bench use). */
+            if (a->running) stop(a);
+            start_measure(a, now);
         } else if (events & LCR_KEY_SHORT) {
-            if (a->running) stop(a); else start_measure(a, now);
+            /* Single press on the measurement page walks the excitation:
+               AUTO -> 100 Hz -> 1 kHz -> 10 kHz -> 100 kHz -> AUTO. */
+            a->frequency_mode = (a->frequency_mode + 1u) % 5u;
+            reset_filter(a);
+            a->dirty = 1u;
+            if (a->running) { stop(a); start_measure(a, now); }
         }
     } else if (a->page == LCR_PAGE_MENU) {
         if (events & LCR_KEY_DOUBLE) a->page = LCR_PAGE_MEASURE;
@@ -158,16 +167,22 @@ static lcr_complex divide(lcr_complex a, lcr_complex b) {
 }
 static int finish_slot(lcr_app *a) {
     const unsigned f = a->cal_frequency, r = a->cal_range;
-    const unsigned samples = a->calibration == LCR_CAPTURE_CHANNEL ? LCR_CAL_CHANNEL_SAMPLES : 3u;
+    const unsigned samples = a->calibration == LCR_CAPTURE_CHANNEL ? LCR_CAL_CHANNEL_SAMPLES
+                             : 3u; /* calibration_result() triggers at three samples */
     lcr_complex mean = {a->cal_sum.re / (double)samples, a->cal_sum.im / (double)samples};
     if (!isfinite(mean.re) || !isfinite(mean.im)) return 0;
     lcr_calibration *slot = &a->working.slots[f][r];
     if (a->calibration == LCR_CAPTURE_CHANNEL) {
         for (unsigned i = 0u; i < 6u; ++i) {
-            lcr_calibration_nominal(&a->working.slots[f][i], f, i);
-            a->working.slots[f][i].alpha = mean;
-            a->working.slots[f][i].flags = LCR_CAL_CHANNEL;
-            a->working.slots[f][i].revision = a->profile.slots[f][i].revision + 1u;
+            lcr_calibration *tgt = &a->working.slots[f][i];
+            /* Only fill in the nominal Rf when this slot has never been
+               calibrated; a previously stored feedback calibration (RF
+               standard) must survive a channel re-calibration. */
+            if ((tgt->flags & (LCR_CAL_CHANNEL | LCR_CAL_FEEDBACK | LCR_CAL_FIXTURE)) == 0u)
+                lcr_calibration_nominal(tgt, f, i);
+            tgt->alpha = mean;
+            tgt->flags |= LCR_CAL_CHANNEL;
+            tgt->revision = a->profile.slots[f][i].revision + 1u;
         }
     } else if (a->calibration == LCR_CAPTURE_OPEN) {
         if(!(slot->flags&LCR_CAL_FIXTURE))slot->zs.re=slot->zs.im=0.0;
@@ -233,20 +248,11 @@ static void cal_advance(lcr_app *a, uint32_t now) {
         ++a->cal_frequency;
     }
     if (a->cal_frequency >= 4u) {
-        /* The RF standard is a resistor: its value does not change with
-           frequency.  Band 0 is very noisy on the 10 ohm branch (V2 is only a
-           few hundred counts), so reuse the rf measured at 1 kHz. */
-        if (a->calibration == LCR_CAPTURE_STANDARD) {
-            for (unsigned r = 0u; r < 6u; ++r) {
-                const lcr_calibration *src = &a->working.slots[1][r];
-                lcr_calibration *dst = &a->working.slots[0][r];
-                if ((src->flags & LCR_CAL_FEEDBACK) != 0u) {
-                    dst->rf_ohm = src->rf_ohm; dst->cf_f = src->cf_f;
-                    dst->flags = (dst->flags & ~(uint32_t)LCR_CAL_FIXTURE) | LCR_CAL_FEEDBACK;
-                    ++dst->revision;
-                }
-            }
-        }
+        /* Each band keeps the rf it measured itself: the 1 kHz frame is the
+           longest, but the analogue chain has a small frequency dependent gain
+           (the 100 Hz reading of a 30 ohm standard came out 1.4 % high when
+           band 0 borrowed the 1 kHz value), so calibrating band 0 with its own
+           samples cancels that instead of relying on a copy. */
         a->profile = a->working; a->unsaved = 1u;
         /* The sweep kept the analogue chain running between samples; mute it
            again once no more samples are coming. */

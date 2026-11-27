@@ -85,27 +85,50 @@ int main(void) {
     const lcr_app_io io={acquisition,&sim,save_io};
     lcr_cal_profile_nominal(&profile,123u,456u,8000000.0);
     assert(lcr_app_init(&app,io,&profile,0u,0u));
-    lcr_app_event(&app,LCR_KEY_SHORT,0u);
+    lcr_app_event(&app,LCR_KEY_DOUBLE,0u); /* double press: one measurement */
     while(!app.last.valid && sim.now<20000u)step(&sim);
     assert(app.last.valid && app.running && !app.scan && app.active_frequency==1u);
     assert(fabs(app.last.corrected_z.re-1000.0)<3.0);
-    const unsigned starts=sim.starts;const lcr_measurement held=app.last;
+    const unsigned starts=sim.starts;
+    /* A single press on the measurement page walks the excitation and
+       restarts the measurement with the new frequency. */
+    app.last.valid=0u;
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);   /* AUTO -> 100 Hz */
+    assert(app.frequency_mode==1u && app.running && !app.scan);
+    app.last.valid=0u;
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);   /* 100 Hz -> 1 kHz */
+    assert(app.frequency_mode==2u && app.running && !app.scan);
+    while(!app.last.valid && sim.now<20000u)step(&sim);
+    while(!(app.last.valid && app.active_frequency==1u) && sim.now<20000u)step(&sim);
+    assert(app.last.valid && app.frequency_mode==2u && app.active_frequency==1u && sim.starts>starts);
+    /* A double press starts exactly one fresh measurement. */
+    const unsigned before_double=sim.starts;
+    app.last.valid=0u;
     lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
-    assert(app.model==LCR_MODEL_PARALLEL && sim.starts==starts && memcmp(&held,&app.last,sizeof(held))==0);
-    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
-    assert(!app.running && sim.muted && !sim.active && app.last.valid);
+    assert(app.running);
+    while(!app.last.valid && sim.now<20000u)step(&sim);
+    assert(app.last.valid && sim.starts>before_double);
+    /* The long press stops the measurement and opens the settings menu. */
+    const lcr_measurement held=app.last;
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now);
+    assert(app.page==LCR_PAGE_MENU && !app.running && sim.muted && !sim.active);
+    assert(memcmp(&held,&app.last,sizeof(held))==0);
+    /* Series/parallel now lives in the menu as its last item. */
+    app.menu=8u;
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now);
+    assert(app.model==LCR_MODEL_PARALLEL);
+    app.page=LCR_PAGE_MEASURE;
+    app.frequency_mode=0u; /* AUTO scan again for the component sweep */
     for(unsigned kind=1u;kind<=2u;++kind) {
         const double values[3]={kind==1u?10e-6:100e-3,kind==1u?1e-9:100e-6,kind==1u?10e-12:10e-6};
         for(unsigned n=0u;n<3u;++n) {
             sim.component=kind;sim.component_value=values[n];sim.resistance=0.3;
-            app.last.valid=0u;lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+            app.last.valid=0u;lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
             const uint32_t deadline=sim.now+30000u;
             while(!app.last.valid && sim.now<deadline)step(&sim);
             assert(app.last.valid && app.running && app.last.parameters.kind==(kind==1u?LCR_COMPONENT_C:LCR_COMPONENT_L));
             const double value=kind==1u?app.last.parameters.cs_f:app.last.parameters.ls_h;
             assert(fabs(value/values[n]-1.0)<0.005);
-            lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
-            assert(!app.running && sim.muted);
         }
     }
     sim.component=0u;sim.resistance=1000.0;
@@ -126,17 +149,18 @@ int main(void) {
        message page. */
     sim.gain=0.0;sim.phase=0.0;
     app.page=LCR_PAGE_MEASURE;
-    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
     {const uint32_t fail_deadline=sim.now+30000u;while(app.page!=LCR_PAGE_MESSAGE&&sim.now<fail_deadline)step(&sim);}
     assert(app.page==LCR_PAGE_MESSAGE&&!app.running&&app.session.state==LCR_SESSION_IDLE);
     sim.gain=1.0;
     app.last.valid=0u;
-    lcr_app_event(&app,LCR_KEY_SHORT,sim.now);
+    lcr_app_event(&app,LCR_KEY_SHORT,sim.now); /* MESSAGE page: short retries */
     assert(app.page==LCR_PAGE_MEASURE&&app.running&&app.session.state!=LCR_SESSION_FAILED);
     {const uint32_t retry_deadline=sim.now+30000u;while(!app.last.valid&&sim.now<retry_deadline)step(&sim);}
     assert(app.last.valid&&app.running);
-    lcr_app_event(&app,LCR_KEY_SHORT,sim.now); /* stop */
+    lcr_app_event(&app,LCR_KEY_LONG,sim.now); /* stop */
     assert(!app.running&&sim.muted);
+    app.page=LCR_PAGE_MEASURE;
     sim.gain=1.02;sim.phase=0.03;
     cal_start(&sim,2u);cal_finish(&sim);
     for(unsigned f=0u;f<4u;++f)for(unsigned r=0u;r<6u;++r) {
@@ -169,7 +193,10 @@ int main(void) {
     cal_start(&sim,4u);cal_finish(&sim);
     for(unsigned f=0u;f<=LCR_CAL_MAX_FREQUENCY_INDEX;++f) {
         assert(app.profile.slots[f][2].flags==(LCR_CAL_CHANNEL|LCR_CAL_FEEDBACK));
-        assert(fabs(app.profile.slots[f][2].rf_ohm-1001.0)<3.0);
+        /* The RF-standard frame carries the raw phasor ratio, so the solved
+           transimpedance is the nominal value divided by the modelled gain. */
+        const double expected_rf=1000.0/(sim.gain*cos(sim.phase));
+        assert(fabs(app.profile.slots[f][2].rf_ohm-expected_rf)<3.0);
     }
     app.page=LCR_PAGE_MENU;app.menu=6u;
     lcr_app_event(&app,LCR_KEY_LONG,sim.now);
