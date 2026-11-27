@@ -484,9 +484,14 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
     lcr_session_poll(&a->session,now);
     if (a->session.state == LCR_SESSION_DONE) { a->session.state=LCR_SESSION_IDLE; result(a,now); }
     else if (a->session.state == LCR_SESSION_FAILED && (a->running || a->calibration)) {
-        if (a->scan && a->session.error == LCR_SESSION_RANGE_LIMIT && ++a->scan_index < 4u) {
+        /* A frequency the excitation backend cannot drive (the DAC build has no
+           100 kHz) must skip to the next scan band instead of stopping AUTO. */
+        const int unusable = a->session.error == LCR_SESSION_RANGE_LIMIT ||
+                             a->session.error == LCR_SESSION_FRAME_ERROR ||
+                             a->session.error == LCR_SESSION_TIMEOUT;
+        if (a->scan && unusable && ++a->scan_index < 4u) {
             a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u;
-        } else if (a->scan && a->session.error == LCR_SESSION_RANGE_LIMIT && a->have_best) {
+        } else if (a->scan && unusable && a->have_best) {
             a->scan=0u; a->last=a->best; a->active_frequency=a->last.frequency_index;
             a->active_range=a->last.range_index; a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u; a->dirty=1u;
         } else if (a->session.error == LCR_SESSION_NO_EXCITATION)
