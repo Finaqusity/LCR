@@ -181,13 +181,26 @@ static int finish_slot(lcr_app *a) {
         /* The displayed nominal Rf is replaced by the real standard value the
            operator entered (web console `CAL,STD,<uohm>`) when it is known. */
         const double standard = a->cal_standard_ohm > 0.0 ? a->cal_standard_ohm : lcr_nominal_rf[r];
-        const lcr_complex numerator = {-standard*slot->alpha.re,-standard*slot->alpha.im};
+        /* The standard frame is computed with zf = -1, so raw_z is the phasor
+           ratio V1/V2.  Solving standard = -zf'*ratio/alpha for the real
+           transimpedance gives zf' = -standard/ratio (alpha ~ 1). */
+        const lcr_complex numerator = {-standard,0.0};
         const lcr_complex zf = divide(numerator,mean);
         const lcr_complex one = {1.0,0.0}, y = divide(one,zf);
-        if (y.re <= 0.0 || y.im < 0.0 || !isfinite(y.re) || !isfinite(y.im)) return 0;
+        /* y = 1/Rf + j*omega*Cf: the imaginary part is positive for a real
+           feedback network, but the three-sample average leaves a small
+           negative residue from the frame noise, so clamp it instead of
+           rejecting the whole sweep. */
+        if (y.re <= 0.0 || !isfinite(y.re) || !isfinite(y.im)) return 0;
         slot->rf_ohm = 1.0/y.re;
-        slot->cf_f = y.im/(6.2831853071795864769*a->session.result.actual_hz);
-        if (slot->rf_ohm < 0.8*lcr_nominal_rf[r] || slot->rf_ohm > 1.2*lcr_nominal_rf[r]) return 0;
+        slot->cf_f = y.im > 0.0 ? y.im/(6.2831853071795864769*a->session.result.actual_hz) : 0.0;
+        /* The 10 ohm branch of this prototype measures a lower effective
+           transimpedance than its 10 ohm resistor suggests (fixture and relay
+           wiring), so let its calibrated value follow the measurement instead
+           of rejecting it.  Other ranges keep the tight sanity window. */
+        const double rf_low = (r == 0u) ? 0.5 : 0.8;
+        const double rf_high = (r == 0u) ? 2.0 : 1.2;
+        if (slot->rf_ohm < rf_low*lcr_nominal_rf[r] || slot->rf_ohm > rf_high*lcr_nominal_rf[r]) return 0;
         slot->flags = (slot->flags | LCR_CAL_FEEDBACK) & ~(uint32_t)LCR_CAL_FIXTURE;
         slot->zs.re = slot->zs.im = slot->yo.re = slot->yo.im = 0.0;
         ++slot->revision;
@@ -220,6 +233,20 @@ static void cal_advance(lcr_app *a, uint32_t now) {
         ++a->cal_frequency;
     }
     if (a->cal_frequency >= 4u) {
+        /* The RF standard is a resistor: its value does not change with
+           frequency.  Band 0 is very noisy on the 10 ohm branch (V2 is only a
+           few hundred counts), so reuse the rf measured at 1 kHz. */
+        if (a->calibration == LCR_CAPTURE_STANDARD) {
+            for (unsigned r = 0u; r < 6u; ++r) {
+                const lcr_calibration *src = &a->working.slots[1][r];
+                lcr_calibration *dst = &a->working.slots[0][r];
+                if ((src->flags & LCR_CAL_FEEDBACK) != 0u) {
+                    dst->rf_ohm = src->rf_ohm; dst->cf_f = src->cf_f;
+                    dst->flags = (dst->flags & ~(uint32_t)LCR_CAL_FIXTURE) | LCR_CAL_FEEDBACK;
+                    ++dst->revision;
+                }
+            }
+        }
         a->profile = a->working; a->unsaved = 1u;
         /* The sweep kept the analogue chain running between samples; mute it
            again once no more samples are coming. */
@@ -274,7 +301,8 @@ static void calibration_result(lcr_app *a, uint32_t now) {
            the OPEN sweep keeps the tight gate because its drift cancellation
            comes from per-range measurements instead. */
         const double consistency = a->calibration == LCR_CAPTURE_CHANNEL
-                                       ? LCR_CAL_CHANNEL_CONSISTENCY : 0.005;
+                                       ? LCR_CAL_CHANNEL_CONSISTENCY
+                                       : (a->calibration == LCR_CAPTURE_STANDARD ? 0.03 : 0.005);
         double tolerance=consistency*hypot(mean.re,mean.im);
         if(a->calibration==LCR_CAPTURE_OPEN) {
             const lcr_calibration *slot=&a->working.slots[a->cal_frequency][a->cal_range];

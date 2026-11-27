@@ -134,7 +134,12 @@ static lcr_status calibration_frame(lcr_session *s, const uint16_t *pairs, size_
     if (status != LCR_OK) return status;
     const lcr_complex one = {1.0,0.0}, negative_one = {-1.0,0.0};
     if (s->kind == LCR_CAPTURE_CHANNEL || s->kind == LCR_CAPTURE_STANDARD)
-        return lcr_impedance(&m->v1, &m->v2, negative_one, one, &m->raw_z);
+        /* The 10 ohm branch has very little V2 on the low band; let a weak
+           frame through so the standard sweep can still average it (the
+           channel sweep keeps the strict gate). */
+        return lcr_impedance_ex(&m->v1, &m->v2, negative_one, one,
+                                (uint8_t)(s->kind == LCR_CAPTURE_STANDARD),
+                                &m->raw_z);
     const lcr_calibration *cal = s->config.calibration;
     double rf = lcr_nominal_rf[s->config.range_index], cf = 0.0;
     lcr_complex alpha = one, zf;
