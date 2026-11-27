@@ -165,6 +165,7 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
         else if (events & LCR_KEY_SHORT) a->page = LCR_PAGE_MENU;
     } else if (a->page == LCR_PAGE_MESSAGE) {
         if (events & LCR_KEY_LONG) a->page = LCR_PAGE_MENU;
+        else if (events & LCR_KEY_DOUBLE) { stop(a); a->calibration = 0u; a->page = LCR_PAGE_MEASURE; a->dirty = 1u; }
         else if (events & LCR_KEY_SHORT) start_measure(a, now);
     } else if (a->page == LCR_PAGE_CAL && (events & LCR_KEY_SHORT)) {
         message(a, "CAL CANCELLED", "PREVIOUS CAL RETAINED");
@@ -499,7 +500,13 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
             a->active_range=a->last.range_index; a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u; a->dirty=1u;
         } else if (a->session.error == LCR_SESSION_NO_EXCITATION)
             message(a,"NO EXCITATION","CHECK TP1 / DRIVE");
-        else message(a,"MEASUREMENT FAILED",a->calibration?"PREVIOUS CAL RETAINED":"CHECK LOAD / SIGNAL");
+        else if (!a->calibration && a->last.valid) {
+            /* One bad frame must not flash an error page over a good reading:
+               keep the last value on screen and retry quietly. */
+            a->session.state = LCR_SESSION_IDLE;
+            a->next_start = now + 150u;
+            a->dirty = 1u;
+        } else message(a,"MEASUREMENT FAILED",a->calibration?"PREVIOUS CAL RETAINED":"CHECK LOAD / SIGNAL");
     }
     if (!active(a) && (int32_t)(now-a->next_start)>=0 && a->session.state != LCR_SESSION_DONE) {
         if (a->page==LCR_PAGE_CAL && a->calibration) {
