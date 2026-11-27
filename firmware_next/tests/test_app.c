@@ -85,11 +85,12 @@ int main(void) {
     const lcr_app_io io={acquisition,&sim,save_io};
     lcr_cal_profile_nominal(&profile,123u,456u,8000000.0);
     assert(lcr_app_init(&app,io,&profile,0u,0u));
-    assert(app.frequency_mode==2u); /* the fixed 1 kHz startup mode */
+    assert(app.frequency_mode==0u); /* AUTO at power-up */
     lcr_app_event(&app,LCR_KEY_DOUBLE,0u); /* double press: one measurement */
-    while(!app.last.valid && sim.now<20000u)step(&sim);
-    assert(app.last.valid && !app.running && !app.scan && app.active_frequency==1u);
+    while(!app.last.valid && sim.now<40000u)step(&sim);
+    assert(app.last.valid && !app.running && !app.scan);
     assert(fabs(app.last.corrected_z.re-1000.0)<3.0);
+    lcr_app_set_frequency_mode(&app,2u); /* pin 1 kHz for the gesture tests */
     const unsigned starts=sim.starts;
     lcr_app_set_frequency_mode(&app,0u);
     /* A single press on the measurement page walks the excitation and

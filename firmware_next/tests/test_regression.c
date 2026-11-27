@@ -20,7 +20,7 @@ static void init_app(void) {
     const lcr_app_io io = {session, 0, 0};
     lcr_cal_profile_nominal(&profile, 1u, 1u, 8000000.0);
     assert(lcr_app_init(&app, io, &profile, 0u, 0u));
-    assert(app.frequency_mode == 2u);
+    assert(app.frequency_mode == 0u); /* AUTO at power-up */
     lcr_app_set_frequency_mode(&app, 2u);
     assert(lcr_app_start_measure(&app, 1000u));
 }

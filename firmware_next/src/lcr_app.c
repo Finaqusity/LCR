@@ -76,9 +76,9 @@ int lcr_app_init(lcr_app *a, lcr_app_io io, const lcr_cal_profile *profile, unsi
     if (!a || !profile || !io.acquisition.frequency || !io.acquisition.capture || !io.acquisition.capture_cancel) return 0;
     memset(a, 0, sizeof(*a));
     a->io = io; a->profile = *profile;
-    a->frequency_mode = 2u;   /* mode 0=AUTO, 1=100 Hz, 2=1 kHz: the AUTO
-                                 sweep is one more state machine to trust on
-                                 the bench, so leave it to the operator */
+    a->frequency_mode = 0u;   /* mode 0=AUTO: sweep the usable bands on
+                                 power-up and keep the best one; a single
+                                 press on the measurement page pins a band */
     a->boot_grace = now + 900u;
     a->active_frequency = 1u; a->active_range = 3u;
     const lcr_session_io session_io = {io.acquisition.frontend, a, frequency_io, capture_io, cancel_io, calibration_io};
