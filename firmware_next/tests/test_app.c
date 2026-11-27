@@ -85,11 +85,13 @@ int main(void) {
     const lcr_app_io io={acquisition,&sim,save_io};
     lcr_cal_profile_nominal(&profile,123u,456u,8000000.0);
     assert(lcr_app_init(&app,io,&profile,0u,0u));
+    assert(app.frequency_mode==2u); /* the fixed 1 kHz startup mode */
     lcr_app_event(&app,LCR_KEY_DOUBLE,0u); /* double press: one measurement */
     while(!app.last.valid && sim.now<20000u)step(&sim);
-    assert(app.last.valid && app.running && !app.scan && app.active_frequency==1u);
+    assert(app.last.valid && !app.running && !app.scan && app.active_frequency==1u);
     assert(fabs(app.last.corrected_z.re-1000.0)<3.0);
     const unsigned starts=sim.starts;
+    lcr_app_set_frequency_mode(&app,0u);
     /* A single press on the measurement page walks the excitation and
        restarts the measurement with the new frequency. */
     app.last.valid=0u;
@@ -107,7 +109,7 @@ int main(void) {
     lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
     assert(app.running);
     while(!app.last.valid && sim.now<20000u)step(&sim);
-    assert(app.last.valid && sim.starts>before_double);
+    assert(app.last.valid && !app.running && sim.starts>before_double);
     /* The long press stops the measurement and opens the settings menu. */
     const lcr_measurement held=app.last;
     lcr_app_event(&app,LCR_KEY_LONG,sim.now);
@@ -122,14 +124,27 @@ int main(void) {
     for(unsigned kind=1u;kind<=2u;++kind) {
         const double values[3]={kind==1u?10e-6:100e-3,kind==1u?1e-9:100e-6,kind==1u?10e-12:10e-6};
         for(unsigned n=0u;n<3u;++n) {
-            /* 10 pF only fits the 1 MOhm range at 100 kHz, which the DAC
-               backend cannot drive. */
+            /* This tiny capacitor is below the DAC build's precision target. */
+#if LCR_EXCITATION_DAC
             if (values[n] < 5e-11) continue;
+#endif
             sim.component=kind;sim.component_value=values[n];sim.resistance=0.3;
             app.last.valid=0u;lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
             const uint32_t deadline=sim.now+30000u;
             while(!app.last.valid && sim.now<deadline)step(&sim);
-            assert(app.last.valid && app.running && app.last.parameters.kind==(kind==1u?LCR_COMPONENT_C:LCR_COMPONENT_L));
+#if LCR_EXCITATION_DAC
+            /* 10 uH needs 100 kHz to reach a usable range. The DAC
+               sweep must report failure without overrunning its band table. */
+            if (kind == 2u && values[n] < 1e-4) {
+                assert(!app.last.valid && !app.running && app.page==LCR_PAGE_MESSAGE);
+                continue;
+            }
+#endif
+            if (!(app.last.valid && !app.running && app.last.parameters.kind==(kind==1u?LCR_COMPONENT_C:LCR_COMPONENT_L)))
+                fprintf(stderr,"component %u value %.9g: valid=%u running=%u kind=%u page=%u scan=%u index=%u state=%u error=%u message=%s\n",
+                    kind,values[n],app.last.valid,app.running,app.last.parameters.kind,app.page,
+                    app.scan,app.scan_index,app.session.state,app.session.error,app.message?app.message:"");
+            assert(app.last.valid && !app.running && app.last.parameters.kind==(kind==1u?LCR_COMPONENT_C:LCR_COMPONENT_L));
             const double value=kind==1u?app.last.parameters.cs_f:app.last.parameters.ls_h;
             assert(fabs(value/values[n]-1.0)<0.005);
         }

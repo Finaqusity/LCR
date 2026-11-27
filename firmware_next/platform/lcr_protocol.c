@@ -1,4 +1,5 @@
 #include "lcr_protocol.h"
+#include "lcr_config.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -24,8 +25,6 @@ static struct {
     unsigned cal_kind, cal_f, cal_r, cal_samples;
     const char *message;
 } mirror;
-
-static unsigned pending_single;
 
 /* ---- small fixed-point/ASCII formatting -------------------------------- */
 
@@ -255,22 +254,20 @@ static void handle_command(lcr_app *app, const char *command) {
     if (!strcmp(command, "?")) { lcr_protocol_boot(app); return; }
     if (!strcmp(command, "PING")) { send_frame_ack("PING"); send_frame_state(app, 1); return; }
     if (!strcmp(command, "M")) {
-        if (!lcr_app_start_measure(app, now)) { send_frame_error(102u, "BUSY"); return; }
-        pending_single = 1u;
+        if (!lcr_app_start_once(app, now)) { send_frame_error(102u, "BUSY"); return; }
         send_frame_ack("M");
         send_frame_state(app, 1);
         return;
     }
     if (!strcmp(command, "C1")) {
         if (!app->running && !lcr_app_start_measure(app, now)) { send_frame_error(102u, "BUSY"); return; }
-        pending_single = 0u;
+        app->single_measurement = 0u;
         send_frame_ack("C1");
         send_frame_state(app, 1);
         return;
     }
     if (!strcmp(command, "C0")) {
         (void)lcr_app_stop_measure(app);
-        pending_single = 0u;
         send_frame_ack("C0");
         send_frame_state(app, 1);
         return;
@@ -280,6 +277,9 @@ static void handle_command(lcr_app *app, const char *command) {
         const unsigned mode = (unsigned)(command[1] - '0');
         if (command[0] == 'F') {
             if (mode > 4u) { send_frame_error(100u, "FREQ RANGE"); return; }
+#if LCR_EXCITATION_DAC
+            if (mode == 4u) { send_frame_error(100u, "FREQ UNAVAILABLE ON DAC"); return; }
+#endif
             lcr_app_set_frequency_mode(app, mode);
         } else {
             if (mode > 6u) { send_frame_error(100u, "RANGE RANGE"); return; }
@@ -368,7 +368,6 @@ void lcr_protocol_init(lcr_app *app, const char *fw_version, uint32_t board_id,
     protocol_board = board_id;
     protocol_fixture = fixture_id;
     rx_length = 0u;
-    pending_single = 0u;
     memset(&mirror, 0, sizeof(mirror));
     mirror.running = 0xFFFFFFFFu;
     mirror.cal_samples = 0xFFFFFFFFu;
@@ -392,10 +391,6 @@ void lcr_protocol_poll(lcr_app *app, uint32_t now) {
     if (app->result_seq != mirror.result_seq) {
         mirror.result_seq = app->result_seq;
         if (app->last.valid) send_frame_result(app);
-        if (pending_single) {
-            pending_single = 0u;
-            (void)lcr_app_stop_measure(app);
-        }
     }
     send_frame_state(app, 0);
     const unsigned cal_kind = app->calibration == LCR_CAPTURE_CHANNEL ? 1u :

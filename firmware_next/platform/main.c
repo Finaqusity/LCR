@@ -102,7 +102,8 @@ int main(void) {
     uint32_t displayed=0u,recovery=0u;
 #if LCR_AUTO_START
     /* Bench/demo convenience: the on-board key is on the back of the board, so
-     * start continuous measurement right after boot; short press still stops. */
+     * start continuous measurement after warm-up. Physical short press changes
+     * band, double press takes one result, long press opens the menu. */
     (void)lcr_app_start_measure(&app, lcr_board_millis() + 1500u);
     uint32_t auto_retry=lcr_board_millis();
 #endif
@@ -115,9 +116,12 @@ int main(void) {
         /* Keep retrying a failed measurement every 2 s, so connecting the DUT
          * brings a reading back without touching the key. */
         if(app.running || app.page!=LCR_PAGE_MESSAGE) auto_retry=now;
-        else if(app.session.error!=LCR_SESSION_NO_ERROR && now-auto_retry>=2000u) {
+        else if(app.retry_measurement && now-auto_retry>=2000u) {
+            /* Retry through the API: the short-press gesture now steps the
+               excitation band, so driving it from here would only change the
+               frequency and never restart the measurement. */
             auto_retry=now;
-            lcr_app_event(&app,LCR_KEY_SHORT,now);
+            (void)lcr_app_start_measure(&app, now);
             lcr_app_poll(&app,lcr_board_buttons(),lcr_board_millis());
         }
 #endif

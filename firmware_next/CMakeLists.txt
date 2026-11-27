@@ -17,7 +17,7 @@ endif()
 option(LCR_BUILD_TESTS "Build host-executable numerical tests" ON)
 if(LCR_BUILD_TESTS)
   enable_testing()
-  foreach(suite core frontend measure session cal_store journal ui app settling)
+  foreach(suite core frontend measure session cal_store journal ui app settling regression)
     add_executable(test_${suite} tests/test_${suite}.c)
     target_link_libraries(test_${suite} PRIVATE lcr_core)
     # Assertions must remain active in Release too.

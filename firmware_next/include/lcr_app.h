@@ -4,6 +4,7 @@
 #include "lcr_cal_store.h"
 #include "lcr_ui.h"
 typedef enum { LCR_PAGE_MEASURE, LCR_PAGE_MENU, LCR_PAGE_CONFIRM, LCR_PAGE_CAL, LCR_PAGE_MESSAGE } lcr_page;
+#define LCR_SMOOTH_WINDOW 5u
 typedef struct {
     lcr_session_io acquisition;
     void *context;
@@ -20,6 +21,7 @@ typedef struct {
     lcr_page page;
     unsigned running, details, dirty, menu, frequency_mode, range_mode;
     unsigned active_frequency, active_range, scan, scan_index, have_best;
+    unsigned single_measurement, frequency_pending, retry_measurement;
     unsigned calibration, cal_frequency, cal_range, cal_samples;
     unsigned unsaved;
     uint32_t next_start;
@@ -33,7 +35,7 @@ typedef struct {
     /* Display stabilisation: median of the last few corrected impedances on the
      * same frequency/range, plus a classification hysteresis so phase noise
      * cannot flip the reading between R, L and C. */
-    lcr_complex smooth_hist[5];
+    lcr_complex smooth_hist[LCR_SMOOTH_WINDOW];
     unsigned smooth_n;
     unsigned smooth_frequency, smooth_range;
     lcr_component stable_kind;
@@ -58,6 +60,7 @@ void lcr_app_set_frequency_mode(lcr_app *app, unsigned mode);
 void lcr_app_set_range_mode(lcr_app *app, unsigned mode);
 void lcr_app_set_model(lcr_app *app, unsigned parallel);
 int lcr_app_start_measure(lcr_app *app, uint32_t now);
+int lcr_app_start_once(lcr_app *app, uint32_t now);
 int lcr_app_stop_measure(lcr_app *app);
 int lcr_app_cal_start(lcr_app *app, unsigned kind, double standard_ohm, uint32_t now);
 int lcr_app_cal_save(lcr_app *app);

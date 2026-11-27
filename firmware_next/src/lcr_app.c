@@ -15,7 +15,13 @@ volatile double lcr_cal_dbg_re[16];
 volatile double lcr_cal_dbg_im[16];
 volatile unsigned lcr_cal_dbg_count;
 
-static const unsigned frequencies[4] = {1u,2u,3u,0u};
+/* Scan only bands supported by the selected source, best resistor band first. */
+#if LCR_EXCITATION_DAC
+static const unsigned frequencies[] = {1u, 2u, 0u};
+#else
+static const unsigned frequencies[] = {1u, 2u, 3u, 0u};
+#endif
+#define SCAN_FREQUENCIES (sizeof(frequencies) / sizeof(frequencies[0]))
 static unsigned next_frequency_mode(unsigned mode) {
 #if LCR_EXCITATION_DAC
     /* The DAC backend cannot synthesise 100 kHz, so the manual cycle stays on
@@ -49,6 +55,7 @@ static int active(const lcr_app *a) {
 }
 static void stop(lcr_app *a) {
     a->running = 0u; a->scan = 0u;
+    a->single_measurement = 0u; a->frequency_pending = 0u; a->retry_measurement = 0u;
     lcr_session_stop(&a->session);
     a->session.keep_excitation = 0u;
     /* A terminal state must not block the next start: the page above the
@@ -59,7 +66,9 @@ static void stop(lcr_app *a) {
         a->session.state = LCR_SESSION_IDLE;
 }
 static void message(lcr_app *a, const char *line1, const char *line2) {
+    const unsigned retry = a->running && !a->single_measurement && !a->calibration;
     stop(a); a->calibration = 0u;
+    a->retry_measurement = retry;
     a->page = LCR_PAGE_MESSAGE;
     a->message = line1; a->message2 = line2; a->dirty = 1u;
 }
@@ -67,7 +76,9 @@ int lcr_app_init(lcr_app *a, lcr_app_io io, const lcr_cal_profile *profile, unsi
     if (!a || !profile || !io.acquisition.frequency || !io.acquisition.capture || !io.acquisition.capture_cancel) return 0;
     memset(a, 0, sizeof(*a));
     a->io = io; a->profile = *profile;
-    a->frequency_mode = 0u;   /* power up scanning: AUTO picks the band */
+    a->frequency_mode = 2u;   /* mode 0=AUTO, 1=100 Hz, 2=1 kHz: the AUTO
+                                 sweep is one more state machine to trust on
+                                 the bench, so leave it to the operator */
     a->boot_grace = now + 900u;
     a->active_frequency = 1u; a->active_range = 3u;
     const lcr_session_io session_io = {io.acquisition.frontend, a, frequency_io, capture_io, cancel_io, calibration_io};
@@ -88,12 +99,13 @@ static void start_measure(lcr_app *a, uint32_t now) {
     a->running = 1u;
     a->scan = a->frequency_mode == 0u;
     a->scan_index = 0u; a->have_best = 0u;
+    a->single_measurement = 0u; a->frequency_pending = 0u; a->retry_measurement = 0u;
     reset_filter(a);
     a->next_start = now;
     a->dirty = 1u;
 }
 static void menu_activate(lcr_app *a) {
-    if (a->menu == 0u) a->frequency_mode = next_frequency_mode(a->frequency_mode);
+    if (a->menu == 0u) lcr_app_set_frequency_mode(a, next_frequency_mode(a->frequency_mode));
     else if (a->menu == 1u) a->range_mode = (a->range_mode + 1u) % 7u;
     else if (a->menu >= 2u && a->menu <= 4u) a->page = LCR_PAGE_CONFIRM;
     else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
@@ -147,14 +159,13 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
             /* Double press: run exactly one measurement (bench use). */
             if (a->running) stop(a);
             start_measure(a, now);
+            a->single_measurement = 1u;
         } else if (events & LCR_KEY_SHORT) {
             /* Single press on the measurement page walks the excitation.  The
                running session re-reads frequency_mode at every frame, so the
                next capture already uses the new band; stopping the session here
                raced with an in-flight capture and dropped the press. */
-            a->frequency_mode = next_frequency_mode(a->frequency_mode);
-            reset_filter(a);
-            a->dirty = 1u;
+            lcr_app_set_frequency_mode(a, next_frequency_mode(a->frequency_mode));
             if (!a->running) start_measure(a, now);
         }
     } else if (a->page == LCR_PAGE_MENU) {
@@ -360,8 +371,9 @@ static double score(const lcr_measurement *m) {
     return 90.0 - 20.0*fabs(log10(fmax(fabs(m->corrected_z.im),1e-12)/1000.0));
 }
 static double median_of(const double *v, unsigned n) {
-    double tmp[3];
+    double tmp[LCR_SMOOTH_WINDOW];
     unsigned i, j;
+    if (!n || n > LCR_SMOOTH_WINDOW) return 0.0;
     for (i = 0u; i < n; ++i) tmp[i] = v[i];
     for (i = 1u; i < n; ++i) {
         const double key = tmp[i];
@@ -379,7 +391,7 @@ static double median_of(const double *v, unsigned n) {
 static void stabilise_result(lcr_app *a) {
     lcr_measurement *m = &a->last;
     lcr_parameters p;
-    double re[5], im[5];
+    double re[LCR_SMOOTH_WINDOW], im[LCR_SMOOTH_WINDOW];
     lcr_complex z;
     unsigned i;
     if (!m->valid || m->parameters.kind == LCR_COMPONENT_UNKNOWN) {
@@ -392,9 +404,9 @@ static void stabilise_result(lcr_app *a) {
         a->smooth_range = m->range_index;
         a->smooth_n = 0u;
     }
-    if (a->smooth_n == 5u) {
-        for (unsigned k = 1u; k < 5u; ++k) a->smooth_hist[k - 1u] = a->smooth_hist[k];
-        --a->smooth_n;
+    if (a->smooth_n >= LCR_SMOOTH_WINDOW) {
+        for (unsigned k = 1u; k < LCR_SMOOTH_WINDOW; ++k) a->smooth_hist[k - 1u] = a->smooth_hist[k];
+        a->smooth_n = LCR_SMOOTH_WINDOW - 1u;
     }
     a->smooth_hist[a->smooth_n++] = m->corrected_z;
     for (i = 0u; i < a->smooth_n; ++i) {
@@ -422,6 +434,13 @@ static void stabilise_result(lcr_app *a) {
     m->parameters = p;
 }
 
+static void publish_result(lcr_app *a, uint32_t now) {
+    stabilise_result(a);
+    a->active_frequency = a->last.frequency_index; a->active_range = a->last.range_index;
+    ++a->result_seq;
+    a->session.state = LCR_SESSION_IDLE; a->next_start = now + 40u; a->dirty = 1u;
+    if (a->single_measurement) stop(a);
+}
 static void result(lcr_app *a, uint32_t now) {
     if (a->calibration) { calibration_result(a, now); return; }
     if (a->scan) {
@@ -430,13 +449,14 @@ static void result(lcr_app *a, uint32_t now) {
             a->best = a->session.result; a->best_score = quality; a->have_best = 1u;
         }
         ++a->scan_index;
-        if (a->scan_index < 4u) { a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty=1u; return; }
+        if (a->scan_index < SCAN_FREQUENCIES) { a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty=1u; return; }
         if (a->best.parameters.kind == LCR_COMPONENT_UNKNOWN) { message(a,"MODEL UNCERTAIN","TRY MANUAL FREQUENCY"); return; }
         a->scan = 0u; a->last = a->best;
         /* Small impedances read best in the 100 Hz band on this build; if the
            scan landed on a small resistance in another band, measure it once
            at 100 Hz instead. */
-        if (a->last.parameters.magnitude_ohm > 0.0 && a->last.parameters.magnitude_ohm < 50.0 &&
+        if (a->last.parameters.kind == LCR_COMPONENT_R &&
+            a->last.parameters.magnitude_ohm > 0.0 && a->last.parameters.magnitude_ohm < 50.0 &&
             a->last.frequency_index != 0u) {
             a->session.state = LCR_SESSION_IDLE;
             a->active_frequency = 0u;
@@ -454,10 +474,7 @@ static void result(lcr_app *a, uint32_t now) {
         }
         a->last = a->session.result;
     }
-    stabilise_result(a);
-    a->active_frequency = a->last.frequency_index; a->active_range = a->last.range_index;
-    ++a->result_seq;
-    a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty = 1u;
+    publish_result(a, now);
 }
 static void render(lcr_app *a) {
     if (a->page == LCR_PAGE_MEASURE) {
@@ -501,21 +518,33 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
         lcr_app_event(a, armed ? events : 0u, now);
     }
     lcr_session_poll(&a->session,now);
-    if (a->session.state == LCR_SESSION_DONE) { a->session.state=LCR_SESSION_IDLE; result(a,now); }
+    if (a->frequency_pending && a->running && !a->calibration && !active(a)) {
+        /* Apply a requested band only at a capture boundary. The old frame is
+           not counted as the first sample of a new AUTO sweep or single shot. */
+        a->frequency_pending = 0u;
+        a->scan = a->frequency_mode == 0u;
+        a->scan_index = 0u; a->have_best = 0u;
+        a->session.state = LCR_SESSION_IDLE;
+        a->next_start = now; reset_filter(a);
+    } else if (a->session.state == LCR_SESSION_DONE) { a->session.state=LCR_SESSION_IDLE; result(a,now); }
     else if (a->session.state == LCR_SESSION_FAILED && (a->running || a->calibration)) {
         /* A frequency the excitation backend cannot drive (the DAC build has no
            100 kHz) must skip to the next scan band instead of stopping AUTO. */
         const int unusable = a->session.error == LCR_SESSION_RANGE_LIMIT ||
                              a->session.error == LCR_SESSION_FRAME_ERROR ||
                              a->session.error == LCR_SESSION_TIMEOUT;
-        if (a->scan && unusable && ++a->scan_index < 4u) {
+        if (a->scan && unusable && ++a->scan_index < SCAN_FREQUENCIES) {
             a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u;
         } else if (a->scan && unusable && a->have_best) {
-            a->scan=0u; a->last=a->best; a->active_frequency=a->last.frequency_index;
-            a->active_range=a->last.range_index; a->session.state=LCR_SESSION_IDLE; a->next_start=now+40u; a->dirty=1u;
+            a->scan=0u; a->last=a->best;
+            publish_result(a, now);
+        } else if (a->scan && unusable) {
+            /* Exhausted without a usable result: never index one past the
+               scan table just because an older displayed result was valid. */
+            message(a,"NO USABLE FREQUENCY","TRY MANUAL FREQUENCY");
         } else if (a->session.error == LCR_SESSION_NO_EXCITATION)
             message(a,"NO EXCITATION","CHECK TP1 / DRIVE");
-        else if (!a->calibration && a->last.valid) {
+        else if (!a->calibration && !a->single_measurement && a->last.valid) {
             /* One bad frame must not flash an error page over a good reading:
                keep the last value on screen and retry quietly. */
             a->session.state = LCR_SESSION_IDLE;
@@ -531,6 +560,10 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
                                       (lcr_capture_kind)a->calibration,a->profile.hse_hz,now))
                 message(a,"CAL START FAILED","PREVIOUS CAL RETAINED");
         } else if (a->running && a->page==LCR_PAGE_MEASURE) {
+            if (a->scan && a->scan_index >= SCAN_FREQUENCIES) {
+                message(a,"INVALID SCAN STATE","TRY MANUAL FREQUENCY");
+                return;
+            }
             const unsigned f=a->scan?frequencies[a->scan_index]:a->frequency_mode?a->frequency_mode-1u:a->active_frequency;
             const unsigned r=a->range_mode?a->range_mode-1u:a->active_range;
             /* Keep the excitation alive between scan bands: the analogue
@@ -552,7 +585,13 @@ void lcr_app_halt(lcr_app *a) { stop(a);a->calibration=0u;a->page=LCR_PAGE_MEASU
 
 void lcr_app_set_frequency_mode(lcr_app *a, unsigned mode) {
     if (!a || mode > 4u) return;
-    a->frequency_mode = mode; reset_filter(a); a->dirty = 1u;
+#if LCR_EXCITATION_DAC
+    if (mode == 4u) return;
+#endif
+    if (a->frequency_mode != mode) {
+        a->frequency_mode = mode; a->frequency_pending = 1u;
+        reset_filter(a); a->dirty = 1u;
+    }
 }
 void lcr_app_set_range_mode(lcr_app *a, unsigned mode) {
     if (!a || mode > 6u) return;
@@ -565,6 +604,11 @@ void lcr_app_set_model(lcr_app *a, unsigned parallel) {
 int lcr_app_start_measure(lcr_app *a, uint32_t now) {
     if (!a || active(a)) return 0;
     start_measure(a, now); return 1;
+}
+int lcr_app_start_once(lcr_app *a, uint32_t now) {
+    if (!lcr_app_start_measure(a, now)) return 0;
+    a->single_measurement = 1u;
+    return 1;
 }
 int lcr_app_stop_measure(lcr_app *a) {
     if (!a) return 0;

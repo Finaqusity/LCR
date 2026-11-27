@@ -41,7 +41,8 @@
 
 /* Auto-start. 1 = begin a continuous measurement as soon as the firmware
  * boots, so a demo/bench setup shows a reading without touching the key
- * (the key is on the back of this core board). Stop with a short press.
+ * (the key is on the back of this core board). Long press opens settings and
+ * stops measurement; short press changes band, double press takes one result.
  * Set to 0 to boot into the idle screen. */
 #ifndef LCR_AUTO_START
 #define LCR_AUTO_START 1u
@@ -62,9 +63,8 @@
 #define LCR_CAPTURE_PAIRS_MAX 8192u
 
 /* Calibration frames are longer than a normal measurement frame whenever the
- * frequency table only gives a short capture.  The 100 Hz slot captures 128
- * pairs (80 ms); a calibration frame may be long without hurting the 1 s
- * measurement budget. */
+ * frequency table only gives a short capture. The 100 Hz slot now captures
+ * 768 pairs (480 ms); the minimum below does not shorten that window. */
 #define LCR_CAL_MIN_PAIRS 512u
 
 /* CHANNEL calibration averages many frames because the dominant sample-to-

@@ -1,6 +1,8 @@
 ﻿param(
     [string]$VsRoot = 'D:\vs studio',
-    [string]$WindowsSdkRoot = 'D:\Windows Kits\10'
+    [string]$WindowsSdkRoot = 'D:\Windows Kits\10',
+    [string]$Suite = '*',
+    [switch]$AddressSanitizer
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -13,7 +15,7 @@ $sdk = Get-ChildItem (Join-Path $WindowsSdkRoot 'Include') -Directory |
 if (!$msvc -or !$sdk) { throw 'MSVC/Windows SDK not found. Pass -VsRoot and -WindowsSdkRoot, or use CMake with a native compiler.' }
 $compilerDirectory = Join-Path $msvc.FullName 'bin\Hostx64\x64'
 $compiler = Join-Path $compilerDirectory 'cl.exe'
-$outputDirectory = Join-Path $sourceRoot 'build-host'
+$outputDirectory = Join-Path $sourceRoot $(if ($AddressSanitizer) {'build-host-asan'} else {'build-host'})
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $savedPath, $savedInclude, $savedLib = $env:PATH, $env:INCLUDE, $env:LIB
 try {
@@ -24,12 +26,15 @@ try {
     $sdkLib = Join-Path $WindowsSdkRoot "Lib\$($sdk.Name)"
     $env:LIB = "$(Join-Path $msvc.FullName 'lib\x64');$sdkLib\ucrt\x64;$sdkLib\um\x64"
     $librarySources = @(Get-ChildItem (Join-Path $sourceRoot 'src') -Filter '*.c' -File | ForEach-Object FullName)
-    $testSources = @(Get-ChildItem (Join-Path $sourceRoot 'tests') -Filter 'test_*.c' -File)
+    $testSources = @(Get-ChildItem (Join-Path $sourceRoot 'tests') -Filter "test_$Suite.c" -File)
+    if (!$testSources.Count) { throw "No test suite matched: $Suite" }
     foreach ($testSource in $testSources) {
         $suite = $testSource.BaseName
         $executable = Join-Path $outputDirectory "$suite.exe"
         $sourcePaths = $librarySources + @($testSource.FullName)
-        & $compiler /nologo /std:c11 /W4 /WX /O2 /UNDEBUG "/I$(Join-Path $sourceRoot 'include')" @sourcePaths "/Fe$executable" "/Fo$outputDirectory\"
+        $optimization = @('/O2')
+        if ($AddressSanitizer) { $optimization = @('/Od','/Zi','/fsanitize=address',"/Fd$outputDirectory\$suite.pdb") }
+        & $compiler /nologo /std:c11 /W4 /WX @optimization /UNDEBUG "/I$(Join-Path $sourceRoot 'include')" @sourcePaths "/Fe$executable" "/Fo$outputDirectory\"
         if ($LASTEXITCODE -ne 0) { throw "Host compilation failed: $suite" }
         & $executable
         if ($LASTEXITCODE -ne 0) { throw "Host tests failed: $suite" }

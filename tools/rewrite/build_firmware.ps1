@@ -6,8 +6,9 @@ $outputDirectory=Join-Path $sourceRoot 'build-target'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $compiler=Join-Path $Toolchain 'arm-none-eabi-gcc.exe'
 try {
-    & $compiler --version | Select-Object -First 1
+    $compilerVersion = & $compiler --version
     if($LASTEXITCODE -ne 0){throw 'Compiler cannot start'}
+    Write-Host $compilerVersion[0]
 } catch { throw "GNU toolchain could not start: $($_.Exception.Message). Supply a working -Toolchain directory; no image was built." }
 $flags=@('-mcpu=cortex-m4','-mthumb','-mfpu=fpv4-sp-d16','-mfloat-abi=hard','-std=c11','-O2','-g3',
     '-ffunction-sections','-fdata-sections','-fstack-usage','-Wall','-Wextra','-Werror','-DSTM32F407xx',
