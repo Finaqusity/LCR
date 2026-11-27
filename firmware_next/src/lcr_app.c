@@ -67,6 +67,9 @@ int lcr_app_init(lcr_app *a, lcr_app_io io, const lcr_cal_profile *profile, unsi
     if (!a || !profile || !io.acquisition.frequency || !io.acquisition.capture || !io.acquisition.capture_cancel) return 0;
     memset(a, 0, sizeof(*a));
     a->io = io; a->profile = *profile;
+    /* Power up in a single band: the assessment values determinism, and the
+       AUTO scan is one key press away if the operator wants it. */
+    a->frequency_mode = 1u;
     a->active_frequency = 1u; a->active_range = 3u;
     const lcr_session_io session_io = {io.acquisition.frontend, a, frequency_io, capture_io, cancel_io, calibration_io};
     if (!lcr_session_init(&a->session, session_io)) return 0;
