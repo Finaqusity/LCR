@@ -33,7 +33,7 @@ typedef struct {
     /* Display stabilisation: median of the last few corrected impedances on the
      * same frequency/range, plus a classification hysteresis so phase noise
      * cannot flip the reading between R, L and C. */
-    lcr_complex smooth_hist[3];
+    lcr_complex smooth_hist[5];
     unsigned smooth_n;
     unsigned smooth_frequency, smooth_range;
     lcr_component stable_kind;

@@ -377,7 +377,7 @@ static double median_of(const double *v, unsigned n) {
 static void stabilise_result(lcr_app *a) {
     lcr_measurement *m = &a->last;
     lcr_parameters p;
-    double re[3], im[3];
+    double re[5], im[5];
     lcr_complex z;
     unsigned i;
     if (!m->valid || m->parameters.kind == LCR_COMPONENT_UNKNOWN) {
@@ -390,9 +390,8 @@ static void stabilise_result(lcr_app *a) {
         a->smooth_range = m->range_index;
         a->smooth_n = 0u;
     }
-    if (a->smooth_n == 3u) {
-        a->smooth_hist[0] = a->smooth_hist[1];
-        a->smooth_hist[1] = a->smooth_hist[2];
+    if (a->smooth_n == 5u) {
+        for (unsigned k = 1u; k < 5u; ++k) a->smooth_hist[k - 1u] = a->smooth_hist[k];
         --a->smooth_n;
     }
     a->smooth_hist[a->smooth_n++] = m->corrected_z;
