@@ -531,7 +531,9 @@ void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
         } else if (a->running && a->page==LCR_PAGE_MEASURE) {
             const unsigned f=a->scan?frequencies[a->scan_index]:a->frequency_mode?a->frequency_mode-1u:a->active_frequency;
             const unsigned r=a->range_mode?a->range_mode-1u:a->active_range;
-            a->session.keep_excitation=!a->scan;
+            /* Keep the excitation alive between scan bands: the analogue
+               chain then warms up once instead of once per band. */
+            a->session.keep_excitation=1u;
             if (!lcr_session_start(&a->session,f,r,!a->range_mode,a->profile.hse_hz,now))
                 message(a,"MEASURE START FAILED","CHECK HARDWARE");
         }
