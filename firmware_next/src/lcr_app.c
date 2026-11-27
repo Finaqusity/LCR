@@ -148,12 +148,14 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
             if (a->running) stop(a);
             start_measure(a, now);
         } else if (events & LCR_KEY_SHORT) {
-            /* Single press on the measurement page walks the excitation:
-               AUTO -> 100 Hz -> 1 kHz -> 10 kHz -> 100 kHz -> AUTO. */
+            /* Single press on the measurement page walks the excitation.  The
+               running session re-reads frequency_mode at every frame, so the
+               next capture already uses the new band; stopping the session here
+               raced with an in-flight capture and dropped the press. */
             a->frequency_mode = next_frequency_mode(a->frequency_mode);
             reset_filter(a);
             a->dirty = 1u;
-            if (a->running) { stop(a); start_measure(a, now); }
+            if (!a->running) start_measure(a, now);
         }
     } else if (a->page == LCR_PAGE_MENU) {
         if (events & LCR_KEY_DOUBLE) a->page = LCR_PAGE_MEASURE;
