@@ -103,7 +103,7 @@ int main(void) {
 #if LCR_AUTO_START
     /* Bench/demo convenience: the on-board key is on the back of the board, so
      * start continuous measurement right after boot; short press still stops. */
-    lcr_app_event(&app,LCR_KEY_SHORT,lcr_board_millis());
+    (void)lcr_app_start_measure(&app, lcr_board_millis());
     uint32_t auto_retry=lcr_board_millis();
 #endif
     for (;;) {
