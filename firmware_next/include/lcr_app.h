@@ -38,6 +38,9 @@ typedef struct {
     unsigned smooth_frequency, smooth_range;
     lcr_component stable_kind;
     unsigned kind_streak;
+    /* Key events are ignored until this tick: the WK_UP pin can float high
+     * during power-up and a phantom long press lands in the menu. */
+    uint32_t boot_grace;
 } lcr_app;
 int lcr_app_init(lcr_app *app, lcr_app_io io, const lcr_cal_profile *profile, unsigned buttons, uint32_t now);
 void lcr_app_poll(lcr_app *app, unsigned buttons, uint32_t now);

@@ -67,9 +67,8 @@ int lcr_app_init(lcr_app *a, lcr_app_io io, const lcr_cal_profile *profile, unsi
     if (!a || !profile || !io.acquisition.frequency || !io.acquisition.capture || !io.acquisition.capture_cancel) return 0;
     memset(a, 0, sizeof(*a));
     a->io = io; a->profile = *profile;
-    /* Power up in a single band: the assessment values determinism, and the
-       AUTO scan is one key press away if the operator wants it. */
-    a->frequency_mode = 1u;
+    a->frequency_mode = 0u;   /* power up scanning: AUTO picks the band */
+    a->boot_grace = now + 900u;
     a->active_frequency = 1u; a->active_range = 3u;
     const lcr_session_io session_io = {io.acquisition.frontend, a, frequency_io, capture_io, cancel_io, calibration_io};
     if (!lcr_session_init(&a->session, session_io)) return 0;
@@ -433,6 +432,17 @@ static void result(lcr_app *a, uint32_t now) {
         if (a->scan_index < 4u) { a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty=1u; return; }
         if (a->best.parameters.kind == LCR_COMPONENT_UNKNOWN) { message(a,"MODEL UNCERTAIN","TRY MANUAL FREQUENCY"); return; }
         a->scan = 0u; a->last = a->best;
+        /* Small impedances read best in the 100 Hz band on this build; if the
+           scan landed on a small resistance in another band, measure it once
+           at 100 Hz instead. */
+        if (a->last.parameters.magnitude_ohm > 0.0 && a->last.parameters.magnitude_ohm < 50.0 &&
+            a->last.frequency_index != 0u) {
+            a->session.state = LCR_SESSION_IDLE;
+            a->active_frequency = 0u;
+            a->next_start = now + 40u;
+            a->dirty = 1u;
+            return;
+        }
     } else {
         if (!a->frequency_mode && a->last.valid &&
             (a->session.result.parameters.magnitude_ohm > 4.0*a->last.parameters.magnitude_ohm ||
@@ -484,7 +494,11 @@ static void render(lcr_app *a) {
     }
 }
 void lcr_app_poll(lcr_app *a, unsigned buttons, uint32_t now) {
-    lcr_app_event(a,lcr_keys_poll(&a->keys,buttons,now),now);
+    {
+        const unsigned events = lcr_keys_poll(&a->keys, buttons, now);
+        const int armed = (int32_t)(now - a->boot_grace) >= 0;
+        lcr_app_event(a, armed ? events : 0u, now);
+    }
     lcr_session_poll(&a->session,now);
     if (a->session.state == LCR_SESSION_DONE) { a->session.state=LCR_SESSION_IDLE; result(a,now); }
     else if (a->session.state == LCR_SESSION_FAILED && (a->running || a->calibration)) {
