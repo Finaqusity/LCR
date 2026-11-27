@@ -4,6 +4,9 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
+# Preserve whitespace in the exported, hash-tracked netlist snapshot.
+docs/rewrite/netlist_source.tel -whitespace
+
 # 二进制：禁止换行转换
 *.pdf  -text
 *.png  -text
