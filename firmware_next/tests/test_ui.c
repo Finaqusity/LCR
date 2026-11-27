@@ -45,8 +45,8 @@ int main(void) {
     lcr_keys_init(&keys,0u,0u);
     assert(lcr_keys_poll(&keys,1u,100u)==0u);
     assert(lcr_keys_poll(&keys,1u,125u)==0u);
-    assert(lcr_keys_poll(&keys,1u,924u)==0u);
-    assert(lcr_keys_poll(&keys,1u,925u)==LCR_KEY_LONG);
+    assert(lcr_keys_poll(&keys,1u,1324u)==0u);
+    assert(lcr_keys_poll(&keys,1u,1325u)==LCR_KEY_LONG);
     assert(lcr_keys_poll(&keys,1u,1000u)==0u);
     assert(lcr_keys_poll(&keys,0u,1025u)==0u);
     assert(lcr_keys_poll(&keys,0u,1100u)==0u);
@@ -65,8 +65,8 @@ int main(void) {
     lcr_keys_init(&keys,0u,UINT32_MAX-100u);
     (void)lcr_keys_poll(&keys,1u,UINT32_MAX-90u);
     (void)lcr_keys_poll(&keys,1u,UINT32_MAX-60u);
-    assert(lcr_keys_poll(&keys,1u,740u)==LCR_KEY_LONG);
-    assert(lcr_keys_poll(&keys,1u,750u)==0u);
+    assert(lcr_keys_poll(&keys,1u,1145u)==LCR_KEY_LONG);
+    assert(lcr_keys_poll(&keys,1u,1150u)==0u);
 
     lcr_canvas canvas, restored;
     uint8_t wire[1024];

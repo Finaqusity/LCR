@@ -13,7 +13,7 @@
 
 /* Key timing: debounce, long press and double-click window. */
 #define LCR_KEY_DEBOUNCE_MS 25u
-#define LCR_KEY_LONG_MS 800u
+#define LCR_KEY_LONG_MS 1200u
 #define LCR_KEY_DOUBLE_MS 300u
 
 /* Excitation source. 1 = internal DAC1 channel 2 (PA5; PA4 is shorted to GND
