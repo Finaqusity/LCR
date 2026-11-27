@@ -16,6 +16,15 @@ volatile double lcr_cal_dbg_im[16];
 volatile unsigned lcr_cal_dbg_count;
 
 static const unsigned frequencies[4] = {1u,2u,3u,0u};
+static unsigned next_frequency_mode(unsigned mode) {
+#if LCR_EXCITATION_DAC
+    /* The DAC backend cannot synthesise 100 kHz, so the manual cycle stays on
+       the three bands it can drive. */
+    return (mode + 1u) % 4u;
+#else
+    return (mode + 1u) % 5u;
+#endif
+}
 static const char *const menu_names[] = {"FREQUENCY", "RANGE", "CHANNEL CAL", "OPEN CAL", "RF STANDARD",
     "SHORT CAL:LOCKED", "SAVE CAL", "CLEAR CAL", "MODEL S/P"};
 static int frequency_io(void *context, uint32_t hz) {
@@ -82,7 +91,7 @@ static void start_measure(lcr_app *a, uint32_t now) {
     a->dirty = 1u;
 }
 static void menu_activate(lcr_app *a) {
-    if (a->menu == 0u) a->frequency_mode = (a->frequency_mode + 1u) % 5u;
+    if (a->menu == 0u) a->frequency_mode = next_frequency_mode(a->frequency_mode);
     else if (a->menu == 1u) a->range_mode = (a->range_mode + 1u) % 7u;
     else if (a->menu >= 2u && a->menu <= 4u) a->page = LCR_PAGE_CONFIRM;
     else if (a->menu == 5u) message(a, "SHORT NOT VALIDATED", "NO EXCITATION STARTED");
@@ -139,7 +148,7 @@ void lcr_app_event(lcr_app *a, unsigned events, uint32_t now) {
         } else if (events & LCR_KEY_SHORT) {
             /* Single press on the measurement page walks the excitation:
                AUTO -> 100 Hz -> 1 kHz -> 10 kHz -> 100 kHz -> AUTO. */
-            a->frequency_mode = (a->frequency_mode + 1u) % 5u;
+            a->frequency_mode = next_frequency_mode(a->frequency_mode);
             reset_filter(a);
             a->dirty = 1u;
             if (a->running) { stop(a); start_measure(a, now); }

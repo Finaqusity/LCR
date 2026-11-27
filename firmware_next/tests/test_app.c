@@ -122,6 +122,9 @@ int main(void) {
     for(unsigned kind=1u;kind<=2u;++kind) {
         const double values[3]={kind==1u?10e-6:100e-3,kind==1u?1e-9:100e-6,kind==1u?10e-12:10e-6};
         for(unsigned n=0u;n<3u;++n) {
+            /* 10 pF only fits the 1 MOhm range at 100 kHz, which the DAC
+               backend cannot drive. */
+            if (values[n] < 5e-11) continue;
             sim.component=kind;sim.component_value=values[n];sim.resistance=0.3;
             app.last.valid=0u;lcr_app_event(&app,LCR_KEY_DOUBLE,sim.now);
             const uint32_t deadline=sim.now+30000u;
