@@ -445,8 +445,12 @@ static void result(lcr_app *a, uint32_t now) {
     a->session.state = LCR_SESSION_IDLE; a->next_start = now+40u; a->dirty = 1u;
 }
 static void render(lcr_app *a) {
-    if (a->page == LCR_PAGE_MEASURE) lcr_ui_measure(&a->canvas, &a->last, a->model,
-        a->scan ? "SCAN" : a->running ? "RUN" : a->last.valid ? "HOLD" : "IDLE", (int)a->details);
+    if (a->page == LCR_PAGE_MEASURE) {
+        const char *state;
+        if (!a->frequency_mode) state = a->scan ? "SCAN" : "AUTO";
+        else state = a->running ? "RUN" : a->last.valid ? "HOLD" : "IDLE";
+        lcr_ui_measure(&a->canvas, &a->last, a->model, state, (int)a->details);
+    }
     else if (a->page == LCR_PAGE_MENU) {
         char setting[30];
         if (a->menu == 0u) {
